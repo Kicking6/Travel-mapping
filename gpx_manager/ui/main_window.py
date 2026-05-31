@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 import gpx_manager.db as db
 from gpx_manager.gpx_parser import parse_gpx_file, parsed_route_to_db_dict, TYPE_COLOURS
+from gpx_manager.csv_parser import parse_poi_csv  # re-exported for convenience
 from gpx_manager.ui.route_list       import LeftPanel
 from gpx_manager.ui.map_view         import MapView
 from gpx_manager.ui.metadata_panel   import MetadataPanel
@@ -308,6 +309,13 @@ class MainWindow(QMainWindow):
         map_export_btn.triggered.connect(self._open_map_export)
         tb.addAction(map_export_btn)
 
+        tb.addSeparator()
+
+        refresh_btn = QAction("⟳ Refresh Map", self)
+        refresh_btn.setToolTip("Reload the map display while keeping all settings and routes")
+        refresh_btn.triggered.connect(self._refresh_map_display)
+        tb.addAction(refresh_btn)
+
         help_btn = QAction("Help", self)
         help_btn.triggered.connect(self._open_help)
         tb.addAction(help_btn)
@@ -381,10 +389,12 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         file_m = mb.addMenu("File")
-        self._add_action(file_m, "Import Files…",  "Ctrl+O",       self._import_files)
-        self._add_action(file_m, "Import Folder…",  "Ctrl+Shift+O", self._import_folder)
+        self._add_action(file_m, "Import Files…",        "Ctrl+O",       self._import_files)
+        self._add_action(file_m, "Import Folder…",        "Ctrl+Shift+O", self._import_folder)
         file_m.addSeparator()
-        self._add_action(file_m, "Export…",         "Ctrl+E",       self._open_export)
+        self._add_action(file_m, "Import Accommodation CSV…", "",         self._import_csv)
+        file_m.addSeparator()
+        self._add_action(file_m, "Export…",              "Ctrl+E",       self._open_export)
 
         routes_m = mb.addMenu("Routes")
         self._add_action(routes_m, "Select All",    "Ctrl+A",       self._select_all)
@@ -412,6 +422,13 @@ class MainWindow(QMainWindow):
         # Re-push all visible routes (needed after crash recovery reloads)
         self._map_route_ids.clear()
         self._sync_map()
+        self._sync_pois()
+
+    def _refresh_map_display(self):
+        """Feature 5: user-initiated map refresh that preserves all settings."""
+        self._map_route_ids.clear()
+        self.map_view.refresh_map()
+        self.statusBar().showMessage("Map refreshing…", 3000)
 
     def _on_map_crashed(self):
         self.statusBar().showMessage("Map reloading after crash…", 4000)
@@ -458,9 +475,36 @@ class MainWindow(QMainWindow):
                 continue
             coords = json.loads(raw) if isinstance(raw, str) else raw
             color = r.get("colour_override") or TYPE_COLOURS.get(r.get("route_type") or "", "#999")
+            weight = r.get("weight_override")
             self.map_view.set_route(r["id"], coords, color,
-                                    r.get("display_name") or "", bool(r.get("is_waypoint")))
+                                    r.get("display_name") or "", bool(r.get("is_waypoint")),
+                                    weight)
         self._map_route_ids = set(ids)
+
+    def _sync_pois(self):
+        """Push all POIs and their type styles to the map (Feature 7)."""
+        pois = db.get_all_pois()
+        if not pois:
+            self.map_view.clear_pois()
+            return
+        # Ensure a style entry exists for every type
+        for p in pois:
+            if p.get("type"):
+                db.ensure_poi_type_style(p["type"])
+        styles = db.get_poi_type_styles()
+        # Convert to dicts the JS bridge accepts
+        poi_list = [
+            {
+                "id": p["id"], "name": p.get("name") or "",
+                "lat": p["lat"], "lon": p["lon"],
+                "type": p.get("type") or "other",
+                "notes": p.get("notes") or "",
+            }
+            for p in pois
+        ]
+        self.map_view.set_poi_layer(poi_list, styles)
+        # Refresh POI type controls in the style drawer
+        self.map_drawer.panel().refresh_poi_types(styles)
 
     # ------------------------------------------------------------------
     # Import
@@ -520,6 +564,56 @@ class MainWindow(QMainWindow):
             msgs = [f"• {Path(p).name}: {'; '.join(w)}" for p, w in warnings[:20]]
             QMessageBox.warning(self, "Import warnings",
                                 "Some files had issues:\n\n" + "\n".join(msgs))
+
+    # ------------------------------------------------------------------
+    # CSV POI import (Feature 7)
+    # ------------------------------------------------------------------
+
+    def _import_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Accommodation CSV", str(Path.home()),
+            "CSV Files (*.csv);;All Files (*)")
+        if not path:
+            return
+        try:
+            rows, warnings = self._parse_poi_csv(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "CSV Import Error",
+                                 f"Could not read CSV file:\n{exc}")
+            return
+
+        if not rows:
+            QMessageBox.warning(self, "CSV Import",
+                                "No valid rows found in the file.\n\n"
+                                "Expected columns: name, lat, lon, type, notes")
+            return
+
+        # Optional: ask whether to replace or append
+        if db.get_all_pois():
+            reply = QMessageBox.question(
+                self, "Import Accommodation CSV",
+                f"Add {len(rows)} location(s) to existing POIs, or replace all?",
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No |
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            if reply == QMessageBox.StandardButton.No:
+                db.delete_all_pois()
+
+        db.upsert_pois(rows)
+        self._sync_pois()
+
+        msg = f"Imported {len(rows)} location(s)."
+        if warnings:
+            msg += f"\n\nWarnings ({len(warnings)}):\n" + "\n".join(warnings[:10])
+        QMessageBox.information(self, "CSV Import", msg)
+
+    @staticmethod
+    def _parse_poi_csv(path: str) -> tuple[list[dict], list[str]]:
+        """Parse a POI CSV file — delegates to the module-level helper."""
+        return parse_poi_csv(path)
 
     # ------------------------------------------------------------------
     # Drag and drop

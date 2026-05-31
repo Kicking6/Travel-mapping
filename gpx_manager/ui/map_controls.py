@@ -10,7 +10,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QComboBox, QSlider, QCheckBox, QPushButton, QGroupBox,
-    QToolButton, QSizePolicy, QScrollArea, QFrame,
+    QToolButton, QSizePolicy, QScrollArea, QFrame, QInputDialog, QMessageBox,
+    QSpinBox,
 )
 
 import gpx_manager.db as db
@@ -42,13 +43,30 @@ _DEFAULTS = {
     "show_scale":       1,
     "show_attribution": 1,
     "show_zoom":        1,
-    # Feature layer toggles
-    "show_ferry":        1,
-    "show_roads":        1,
-    "roads_density":     "all",   # 'all' | 'major'
-    "show_boundaries":   1,
-    "boundary_color":    "#888888",
-    "boundary_width":    1,
+    # Feature layer toggles + styles (Feature 2)
+    "show_ferry":       1,
+    "ferry_color":      "#1ABC9C",
+    "ferry_width":      2,
+    "show_roads":       1,
+    "roads_density":    "all",   # 'all' | 'major'
+    "road_color":       "#AAAAAA",
+    "road_width":       1,
+    # Split boundaries (Feature 3 — replaces single boundary block)
+    "show_state_lines":    1,
+    "state_color":         "#888888",
+    "state_width":         1,
+    "show_province_lines": 1,
+    "province_color":      "#888888",
+    "province_width":      1,
+    # Legacy key kept for backward compat; no longer shown in UI
+    "show_boundaries":     1,
+    "boundary_color":      "#888888",
+    "boundary_width":      1,
+    # Rendering / smoothing (Feature 6)
+    "feature_smoothing":   1,
+    "render_resolution":   100,  # percent of device pixel ratio (100 = default)
+    # POIs (Feature 7)
+    "show_pois":           1,
 }
 
 
@@ -166,6 +184,30 @@ class MapControlsPanel(QWidget):
         )
         outer.addWidget(title)
 
+        # ---- Presets (Feature 4) ----------------------------------------
+        presets_box = self._group("Presets")
+        pg = presets_box.layout()
+
+        self.preset_combo = QComboBox()
+        pg.addWidget(self.preset_combo)
+
+        preset_btn_row = QHBoxLayout()
+        self.preset_save_btn = QPushButton("Save As…")
+        self.preset_load_btn = QPushButton("Load")
+        self.preset_delete_btn = QPushButton("Delete")
+        for b in (self.preset_save_btn, self.preset_load_btn, self.preset_delete_btn):
+            b.setFixedHeight(24)
+        self.preset_save_btn.clicked.connect(self._on_preset_save)
+        self.preset_load_btn.clicked.connect(self._on_preset_load)
+        self.preset_delete_btn.clicked.connect(self._on_preset_delete)
+        preset_btn_row.addWidget(self.preset_save_btn)
+        preset_btn_row.addWidget(self.preset_load_btn)
+        preset_btn_row.addWidget(self.preset_delete_btn)
+        pg.addLayout(preset_btn_row)
+
+        outer.addWidget(presets_box)
+        self._refresh_preset_combo()
+
         # ---- Basemap ---------------------------------------------------
         basemap_box = self._group("Basemap")
         self.basemap_combo = QComboBox()
@@ -238,16 +280,34 @@ class MapControlsPanel(QWidget):
         rg.addWidget(self._labelled("Selected width", self.route_sel_slider))
         outer.addWidget(routes_box)
 
-        # ---- Features --------------------------------------------------
-        feat_box = self._group("Features")
-        fg = feat_box.layout()
+        # ---- Ferry routes (Feature 2) ----------------------------------
+        ferry_box = self._group("Ferry Routes")
+        ffg = ferry_box.layout()
 
-        self.ferry_check = QCheckBox("Ferry routes")
+        self.ferry_check = QCheckBox("Show ferry routes")
         self.ferry_check.toggled.connect(self._on_ferry_changed)
-        fg.addWidget(self.ferry_check)
+        ffg.addWidget(self.ferry_check)
+
+        ferry_color_row = QHBoxLayout()
+        ferry_color_row.addWidget(QLabel("Colour"))
+        ferry_color_row.addStretch()
+        self.ferry_color_btn = ColorButton(_DEFAULTS["ferry_color"], "Ferry route colour")
+        self.ferry_color_btn.color_chosen.connect(self._on_ferry_changed)
+        ferry_color_row.addWidget(self.ferry_color_btn)
+        ferry_color_holder = QWidget(); ferry_color_holder.setLayout(ferry_color_row)
+        ffg.addWidget(ferry_color_holder)
+
+        self.ferry_w_slider = self._slider(1, 8, _DEFAULTS["ferry_width"], self._on_ferry_changed)
+        ffg.addWidget(self._labelled("Line width", self.ferry_w_slider))
+
+        outer.addWidget(ferry_box)
+
+        # ---- Roads (Feature 2) -----------------------------------------
+        roads_box = self._group("Roads")
+        rg2 = roads_box.layout()
 
         roads_row = QHBoxLayout()
-        self.roads_check = QCheckBox("Roads")
+        self.roads_check = QCheckBox("Show roads")
         self.roads_check.toggled.connect(self._on_roads_changed)
         roads_row.addWidget(self.roads_check)
         roads_row.addStretch()
@@ -258,28 +318,70 @@ class MapControlsPanel(QWidget):
         self.roads_density_combo.currentIndexChanged.connect(self._on_roads_changed)
         roads_row.addWidget(self.roads_density_combo)
         roads_holder = QWidget(); roads_holder.setLayout(roads_row)
-        fg.addWidget(roads_holder)
+        rg2.addWidget(roads_holder)
 
-        boundary_vis_row = QHBoxLayout()
-        self.boundary_check = QCheckBox("State / province boundaries")
-        self.boundary_check.toggled.connect(self._on_boundary_changed)
-        boundary_vis_row.addWidget(self.boundary_check)
-        boundary_vis_holder = QWidget(); boundary_vis_holder.setLayout(boundary_vis_row)
-        fg.addWidget(boundary_vis_holder)
+        road_color_row = QHBoxLayout()
+        road_color_row.addWidget(QLabel("Colour"))
+        road_color_row.addStretch()
+        self.road_color_btn = ColorButton(_DEFAULTS["road_color"], "Road colour")
+        self.road_color_btn.color_chosen.connect(self._on_roads_changed)
+        road_color_row.addWidget(self.road_color_btn)
+        road_color_holder = QWidget(); road_color_holder.setLayout(road_color_row)
+        rg2.addWidget(road_color_holder)
 
-        boundary_style_row = QHBoxLayout()
-        boundary_style_row.addWidget(QLabel("Colour"))
-        boundary_style_row.addStretch()
-        self.boundary_color_btn = ColorButton(_DEFAULTS["boundary_color"], "Boundary colour")
-        self.boundary_color_btn.color_chosen.connect(self._on_boundary_changed)
-        boundary_style_row.addWidget(self.boundary_color_btn)
-        boundary_style_holder = QWidget(); boundary_style_holder.setLayout(boundary_style_row)
-        fg.addWidget(boundary_style_holder)
+        self.road_w_slider = self._slider(1, 6, _DEFAULTS["road_width"], self._on_roads_changed)
+        rg2.addWidget(self._labelled("Line width", self.road_w_slider))
 
-        self.boundary_w_slider = self._slider(1, 4, _DEFAULTS["boundary_width"], self._on_boundary_changed)
-        fg.addWidget(self._labelled("Line width", self.boundary_w_slider))
+        outer.addWidget(roads_box)
 
-        outer.addWidget(feat_box)
+        # ---- State lines (Feature 3) -----------------------------------
+        state_box = self._group("State Lines (US / AU)")
+        sg = state_box.layout()
+
+        self.state_check = QCheckBox("Show state lines")
+        self.state_check.toggled.connect(self._on_state_changed)
+        sg.addWidget(self.state_check)
+
+        state_color_row = QHBoxLayout()
+        state_color_row.addWidget(QLabel("Colour"))
+        state_color_row.addStretch()
+        self.state_color_btn = ColorButton(_DEFAULTS["state_color"], "State line colour")
+        self.state_color_btn.color_chosen.connect(self._on_state_changed)
+        state_color_row.addWidget(self.state_color_btn)
+        state_color_holder = QWidget(); state_color_holder.setLayout(state_color_row)
+        sg.addWidget(state_color_holder)
+
+        self.state_w_slider = self._slider(1, 4, _DEFAULTS["state_width"], self._on_state_changed)
+        sg.addWidget(self._labelled("Line width", self.state_w_slider))
+
+        outer.addWidget(state_box)
+
+        # ---- Provincial lines (Feature 3) ------------------------------
+        province_box = self._group("Provincial Lines")
+        pvg = province_box.layout()
+
+        self.province_check = QCheckBox("Show provincial lines")
+        self.province_check.toggled.connect(self._on_province_changed)
+        pvg.addWidget(self.province_check)
+
+        province_color_row = QHBoxLayout()
+        province_color_row.addWidget(QLabel("Colour"))
+        province_color_row.addStretch()
+        self.province_color_btn = ColorButton(_DEFAULTS["province_color"], "Provincial line colour")
+        self.province_color_btn.color_chosen.connect(self._on_province_changed)
+        province_color_row.addWidget(self.province_color_btn)
+        province_color_holder = QWidget(); province_color_holder.setLayout(province_color_row)
+        pvg.addWidget(province_color_holder)
+
+        self.province_w_slider = self._slider(1, 4, _DEFAULTS["province_width"], self._on_province_changed)
+        pvg.addWidget(self._labelled("Line width", self.province_w_slider))
+
+        outer.addWidget(province_box)
+
+        # Keep hidden legacy widget so _load_state doesn't crash
+        self.boundary_check       = QCheckBox()
+        self.boundary_color_btn   = ColorButton(_DEFAULTS["boundary_color"], "")
+        self.boundary_w_slider    = self._slider(1, 4, 1, lambda *a: None)
 
         # ---- Map chrome ------------------------------------------------
         chrome_box = self._group("Map chrome")
@@ -291,6 +393,41 @@ class MapControlsPanel(QWidget):
             cb.toggled.connect(self._on_chrome_changed)
             cg2.addWidget(cb)
         outer.addWidget(chrome_box)
+
+        # ---- Rendering (Feature 6) -------------------------------------
+        render_box = self._group("Rendering")
+        render_g = render_box.layout()
+
+        self.smoothing_check = QCheckBox("Smooth line edges (round caps/joins)")
+        self.smoothing_check.toggled.connect(self._on_smoothing_changed)
+        render_g.addWidget(self.smoothing_check)
+
+        res_note = QLabel("Resolution (% of device pixel ratio)")
+        res_note.setStyleSheet("color:#748ca0;font-size:10px;")
+        res_note.setWordWrap(True)
+        render_g.addWidget(res_note)
+        self.resolution_slider = self._slider(50, 300, _DEFAULTS["render_resolution"],
+                                              self._on_resolution_changed)
+        render_g.addWidget(self.resolution_slider)
+
+        outer.addWidget(render_box)
+
+        # ---- Accommodation / POIs (Feature 7) --------------------------
+        poi_box = self._group("Accommodation / POIs")
+        poi_g = poi_box.layout()
+
+        self.pois_check = QCheckBox("Show POI dots")
+        self.pois_check.toggled.connect(self._on_pois_visible_changed)
+        poi_g.addWidget(self.pois_check)
+
+        self._poi_type_rows: dict[str, dict] = {}  # type → {color_btn, size_spin}
+        self._poi_types_widget = QWidget()
+        self._poi_types_layout = QVBoxLayout(self._poi_types_widget)
+        self._poi_types_layout.setContentsMargins(0, 0, 0, 0)
+        self._poi_types_layout.setSpacing(4)
+        poi_g.addWidget(self._poi_types_widget)
+
+        outer.addWidget(poi_box)
 
         outer.addStretch()
 
@@ -342,8 +479,11 @@ class MapControlsPanel(QWidget):
             self.basemap_combo, self.labels_check, self.labels_density_combo,
             self.route_w_slider, self.route_o_slider, self.route_sel_slider,
             self.scale_check, self.attr_check, self.zoom_check, self.parks_check,
-            self.ferry_check, self.roads_check, self.roads_density_combo,
-            self.boundary_check, self.boundary_w_slider,
+            self.ferry_check, self.ferry_w_slider,
+            self.roads_check, self.roads_density_combo, self.road_w_slider,
+            self.state_check, self.state_w_slider,
+            self.province_check, self.province_w_slider,
+            self.smoothing_check, self.resolution_slider, self.pois_check,
         ]
         for w in widgets_blocking:
             w.blockSignals(True)
@@ -370,13 +510,32 @@ class MapControlsPanel(QWidget):
         self.attr_check.setChecked(bool(_get("show_attribution",   _DEFAULTS["show_attribution"])))
         self.zoom_check.setChecked(bool(_get("show_zoom",          _DEFAULTS["show_zoom"])))
 
-        self.ferry_check.setChecked(bool(_get("show_ferry",     _DEFAULTS["show_ferry"])))
-        self.roads_check.setChecked(bool(_get("show_roads",     _DEFAULTS["show_roads"])))
+        # Feature 2: ferry
+        self.ferry_check.setChecked(bool(_get("show_ferry",    _DEFAULTS["show_ferry"])))
+        self.ferry_color_btn.set_color(_get("ferry_color",     _DEFAULTS["ferry_color"]))
+        self.ferry_w_slider.setValue(_get("ferry_width",       _DEFAULTS["ferry_width"]))
+
+        # Feature 2: roads
+        self.roads_check.setChecked(bool(_get("show_roads",    _DEFAULTS["show_roads"])))
         rd_idx = self.roads_density_combo.findData(_get("roads_density", _DEFAULTS["roads_density"]))
         self.roads_density_combo.setCurrentIndex(max(0, rd_idx))
-        self.boundary_check.setChecked(bool(_get("show_boundaries", _DEFAULTS["show_boundaries"])))
-        self.boundary_color_btn.set_color(_get("boundary_color", _DEFAULTS["boundary_color"]))
-        self.boundary_w_slider.setValue(_get("boundary_width",   _DEFAULTS["boundary_width"]))
+        self.road_color_btn.set_color(_get("road_color",       _DEFAULTS["road_color"]))
+        self.road_w_slider.setValue(_get("road_width",         _DEFAULTS["road_width"]))
+
+        # Feature 3: state / province
+        self.state_check.setChecked(bool(_get("show_state_lines",    _DEFAULTS["show_state_lines"])))
+        self.state_color_btn.set_color(_get("state_color",           _DEFAULTS["state_color"]))
+        self.state_w_slider.setValue(_get("state_width",             _DEFAULTS["state_width"]))
+        self.province_check.setChecked(bool(_get("show_province_lines", _DEFAULTS["show_province_lines"])))
+        self.province_color_btn.set_color(_get("province_color",     _DEFAULTS["province_color"]))
+        self.province_w_slider.setValue(_get("province_width",       _DEFAULTS["province_width"]))
+
+        # Feature 6: rendering
+        self.smoothing_check.setChecked(bool(_get("feature_smoothing", _DEFAULTS["feature_smoothing"])))
+        self.resolution_slider.setValue(_get("render_resolution",      _DEFAULTS["render_resolution"]))
+
+        # Feature 7: POIs
+        self.pois_check.setChecked(bool(_get("show_pois", _DEFAULTS["show_pois"])))
 
         for w in widgets_blocking:
             w.blockSignals(False)
@@ -392,7 +551,10 @@ class MapControlsPanel(QWidget):
         self._on_chrome_changed()
         self._on_ferry_changed()
         self._on_roads_changed()
-        self._on_boundary_changed()
+        self._on_state_changed()
+        self._on_province_changed()
+        self._on_smoothing_changed()
+        self._on_resolution_changed()
 
     # ------------------------------------------------------------------
     # Snapshot for the offscreen renderer
@@ -469,21 +631,177 @@ class MapControlsPanel(QWidget):
 
     def _on_ferry_changed(self, *_):
         visible = self.ferry_check.isChecked()
-        _set("show_ferry", 1 if visible else 0)
-        self._map.set_ferry_visible(visible)
+        color   = self.ferry_color_btn.color()
+        width   = self.ferry_w_slider.value()
+        _set("show_ferry",  1 if visible else 0)
+        _set("ferry_color", color)
+        _set("ferry_width", width)
+        self._map.set_ferry_style(visible, color, width)
 
     def _on_roads_changed(self, *_):
         visible = self.roads_check.isChecked()
         density = self.roads_density_combo.currentData() or "all"
+        color   = self.road_color_btn.color()
+        width   = self.road_w_slider.value()
         _set("show_roads",    1 if visible else 0)
         _set("roads_density", density)
-        self._map.set_roads_visible(visible, density)
+        _set("road_color",    color)
+        _set("road_width",    width)
+        self._map.set_roads_style(visible, density, color, width)
 
     def _on_boundary_changed(self, *_):
-        visible = self.boundary_check.isChecked()
-        color   = self.boundary_color_btn.color()
-        width   = self.boundary_w_slider.value()
-        _set("show_boundaries", 1 if visible else 0)
-        _set("boundary_color",  color)
-        _set("boundary_width",  width)
-        self._map.set_boundary_style(visible, color, width)
+        # Legacy handler kept for potential callers; now delegates to state+province
+        self._on_state_changed()
+        self._on_province_changed()
+
+    def _on_state_changed(self, *_):
+        visible = self.state_check.isChecked()
+        color   = self.state_color_btn.color()
+        width   = self.state_w_slider.value()
+        _set("show_state_lines", 1 if visible else 0)
+        _set("state_color",      color)
+        _set("state_width",      width)
+        self._map.set_state_boundary_style(visible, color, width)
+
+    def _on_province_changed(self, *_):
+        visible = self.province_check.isChecked()
+        color   = self.province_color_btn.color()
+        width   = self.province_w_slider.value()
+        _set("show_province_lines", 1 if visible else 0)
+        _set("province_color",      color)
+        _set("province_width",      width)
+        self._map.set_province_boundary_style(visible, color, width)
+
+    def _on_smoothing_changed(self, *_):
+        enabled = self.smoothing_check.isChecked()
+        _set("feature_smoothing", 1 if enabled else 0)
+        self._map.set_smoothing_enabled(enabled)
+
+    def _on_resolution_changed(self, *_):
+        pct = self.resolution_slider.value()
+        _set("render_resolution", pct)
+        ratio = pct / 100.0
+        self._map.set_render_resolution(ratio)
+
+    def _on_pois_visible_changed(self, *_):
+        visible = self.pois_check.isChecked()
+        _set("show_pois", 1 if visible else 0)
+        self._map.set_pois_visible(visible)
+
+    # ------------------------------------------------------------------
+    # Presets (Feature 4)
+    # ------------------------------------------------------------------
+
+    def _refresh_preset_combo(self):
+        self.preset_combo.blockSignals(True)
+        current = self.preset_combo.currentText()
+        self.preset_combo.clear()
+        for p in db.list_presets():
+            self.preset_combo.addItem(p["name"])
+        # Restore selection if still present
+        idx = self.preset_combo.findText(current)
+        if idx >= 0:
+            self.preset_combo.setCurrentIndex(idx)
+        self.preset_combo.blockSignals(False)
+
+    def _current_settings_dict(self) -> dict:
+        """Snapshot of all current settings as a plain dict."""
+        d = {}
+        for key, default in _DEFAULTS.items():
+            d[key] = _get(key, default)
+        return d
+
+    def _on_preset_save(self):
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        settings = self._current_settings_dict()
+        db.save_preset(name, settings)
+        self._refresh_preset_combo()
+        idx = self.preset_combo.findText(name)
+        if idx >= 0:
+            self.preset_combo.setCurrentIndex(idx)
+
+    def _on_preset_load(self):
+        name = self.preset_combo.currentText()
+        if not name:
+            return
+        settings = db.load_preset(name)
+        if settings is None:
+            QMessageBox.warning(self, "Preset", f"Preset '{name}' not found.")
+            return
+        self._apply_preset(settings)
+
+    def _on_preset_delete(self):
+        name = self.preset_combo.currentText()
+        if not name:
+            return
+        reply = QMessageBox.question(self, "Delete Preset",
+                                     f"Delete preset '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            db.delete_preset(name)
+            self._refresh_preset_combo()
+
+    def _apply_preset(self, settings: dict):
+        """Load a preset dict into all controls and push to map."""
+        # Write all values to DB first
+        for key, val in settings.items():
+            _set(key, val)
+        # Reload UI from DB
+        self._load_state()
+        # Push everything to map
+        self.apply_all_to_map()
+
+    # ------------------------------------------------------------------
+    # POI type rows (Feature 7)
+    # ------------------------------------------------------------------
+
+    def refresh_poi_types(self, type_styles: dict):
+        """Rebuild the per-type colour/size rows from {type: {color, size}}."""
+        # Clear existing rows
+        for key, widgets in list(self._poi_type_rows.items()):
+            row_w = widgets.get("row_widget")
+            if row_w:
+                self._poi_types_layout.removeWidget(row_w)
+                row_w.deleteLater()
+        self._poi_type_rows.clear()
+
+        for poi_type, style in sorted(type_styles.items()):
+            row_w = QWidget()
+            row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 2, 0, 2)
+            row_l.setSpacing(6)
+
+            lbl = QLabel(poi_type.title())
+            lbl.setStyleSheet("font-size:10px;color:#42383c;")
+            row_l.addWidget(lbl, 1)
+
+            color_btn = ColorButton(style.get("color", "#FF6B6B"), f"{poi_type} colour")
+            size_spin = QSpinBox()
+            size_spin.setRange(2, 30)
+            size_spin.setValue(style.get("size", 8))
+            size_spin.setFixedWidth(48)
+
+            row_l.addWidget(color_btn)
+            row_l.addWidget(size_spin)
+
+            self._poi_types_layout.addWidget(row_w)
+            self._poi_type_rows[poi_type] = {
+                "row_widget": row_w,
+                "color_btn": color_btn,
+                "size_spin": size_spin,
+            }
+
+            def make_handler(t, cb, ss):
+                def handler(*_):
+                    c = cb.color()
+                    s = ss.value()
+                    db.set_poi_type_style(t, c, s)
+                    self._map.update_poi_type_style(t, c, s)
+                return handler
+
+            h = make_handler(poi_type, color_btn, size_spin)
+            color_btn.color_chosen.connect(h)
+            size_spin.valueChanged.connect(h)

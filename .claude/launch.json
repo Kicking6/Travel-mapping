@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nz-company-search",
+      "runtimeExecutable": "/opt/homebrew/bin/python3.12",
+      "runtimeArgs": ["-m", "http.server", "8080", "-d", "/Users/roryallen/Documents/Coding Projects 2025/NZ Business Register"],
+      "port": 8080
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TestGenerator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Arrival Lima</name></metadata>
+  
+  <trk>
+    <name>Flight</name>
+    <trkseg>
+      <trkpt lat="-12.015627" lon="-77.107586"></trkpt>
+      <trkpt lat="-12.02041" lon="-77.114941"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

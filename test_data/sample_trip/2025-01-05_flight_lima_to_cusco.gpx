@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TestGenerator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Lima to Cusco</name></metadata>
+  
+  <trk>
+    <name>Flight</name>
+    <trkseg>
+      <trkpt lat="-12.021297" lon="-77.106018"></trkpt>
+      <trkpt lat="-12.184224" lon="-76.546349"></trkpt>
+      <trkpt lat="-12.363343" lon="-75.978952"></trkpt>
+      <trkpt lat="-12.525334" lon="-75.393025"></trkpt>
+      <trkpt lat="-12.684119" lon="-74.83616"></trkpt>
+      <trkpt lat="-12.857068" lon="-74.257192"></trkpt>
+      <trkpt lat="-13.037803" lon="-73.692584"></trkpt>
+      <trkpt lat="-13.189784" lon="-73.106991"></trkpt>
+      <trkpt lat="-13.355466" lon="-72.535933"></trkpt>
+      <trkpt lat="-13.54133" lon="-71.960673"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

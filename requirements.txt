@@ -1,0 +1,4 @@
+PyQt6>=6.6.0
+PyQt6-WebEngine>=6.6.0
+gpxpy>=1.6.2
+vcolorpicker>=1.2.0

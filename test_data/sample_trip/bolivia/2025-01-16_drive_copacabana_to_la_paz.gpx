@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TestGenerator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Copacabana to La Paz</name></metadata>
+  
+  <trk>
+    <name>Drive</name>
+    <trkseg>
+      <trkpt lat="-16.204228" lon="-68.808227"></trkpt>
+      <trkpt lat="-16.204718" lon="-68.787235"></trkpt>
+      <trkpt lat="-16.22106" lon="-68.782269"></trkpt>
+      <trkpt lat="-16.228867" lon="-68.765981"></trkpt>
+      <trkpt lat="-16.218555" lon="-68.744272"></trkpt>
+      <trkpt lat="-16.228845" lon="-68.719278"></trkpt>
+      <trkpt lat="-16.245658" lon="-68.720519"></trkpt>
+      <trkpt lat="-16.251369" lon="-68.695117"></trkpt>
+      <trkpt lat="-16.259912" lon="-68.67348"></trkpt>
+      <trkpt lat="-16.266362" lon="-68.660371"></trkpt>
+      <trkpt lat="-16.280171" lon="-68.650904"></trkpt>
+      <trkpt lat="-16.272625" lon="-68.635647"></trkpt>
+      <trkpt lat="-16.280181" lon="-68.602233"></trkpt>
+      <trkpt lat="-16.290229" lon="-68.585588"></trkpt>
+      <trkpt lat="-16.295959" lon="-68.577696"></trkpt>
+      <trkpt lat="-16.319216" lon="-68.564371"></trkpt>
+      <trkpt lat="-16.329841" lon="-68.533554"></trkpt>
+      <trkpt lat="-16.337108" lon="-68.533715"></trkpt>
+      <trkpt lat="-16.335709" lon="-68.507846"></trkpt>
+      <trkpt lat="-16.346074" lon="-68.496739"></trkpt>
+      <trkpt lat="-16.345572" lon="-68.471146"></trkpt>
+      <trkpt lat="-16.369405" lon="-68.462262"></trkpt>
+      <trkpt lat="-16.361144" lon="-68.446443"></trkpt>
+      <trkpt lat="-16.366291" lon="-68.418202"></trkpt>
+      <trkpt lat="-16.380987" lon="-68.396694"></trkpt>
+      <trkpt lat="-16.389954" lon="-68.391266"></trkpt>
+      <trkpt lat="-16.391399" lon="-68.37969"></trkpt>
+      <trkpt lat="-16.400547" lon="-68.349944"></trkpt>
+      <trkpt lat="-16.406681" lon="-68.333455"></trkpt>
+      <trkpt lat="-16.421566" lon="-68.326889"></trkpt>
+      <trkpt lat="-16.428656" lon="-68.304249"></trkpt>
+      <trkpt lat="-16.443841" lon="-68.279671"></trkpt>
+      <trkpt lat="-16.440265" lon="-68.271196"></trkpt>
+      <trkpt lat="-16.460221" lon="-68.252235"></trkpt>
+      <trkpt lat="-16.46095" lon="-68.243569"></trkpt>
+      <trkpt lat="-16.47789" lon="-68.21722"></trkpt>
+      <trkpt lat="-16.47217" lon="-68.20008"></trkpt>
+      <trkpt lat="-16.491789" lon="-68.175914"></trkpt>
+      <trkpt lat="-16.500068" lon="-68.167481"></trkpt>
+      <trkpt lat="-16.497763" lon="-68.152598"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

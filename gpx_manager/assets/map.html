@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPX Map</title>
+<link rel="stylesheet" href="maplibre-gl.css"/>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #map { width: 100%; height: 100%; }
+
+  /* MapLibre control theming */
+  .maplibregl-ctrl-group {
+    background: rgba(26,39,68,0.85) !important;
+    border: 1px solid #3A5070 !important;
+    border-radius: 6px !important;
+  }
+  .maplibregl-ctrl-group button {
+    background: transparent !important;
+    color: #A0B0C8 !important;
+  }
+  .maplibregl-ctrl-group button:hover { background: rgba(255,255,255,0.1) !important; }
+  .maplibregl-ctrl-group button + button { border-top: 1px solid #3A5070 !important; }
+  .maplibregl-ctrl-attrib {
+    background: rgba(26,39,68,0.7) !important;
+    color: #6A80A0 !important;
+    font-size: 10px !important;
+  }
+  .maplibregl-ctrl-attrib a { color: #6A80A0 !important; }
+  .maplibregl-ctrl-scale {
+    background: rgba(26,39,68,0.7) !important;
+    border-color: #5A78A0 !important;
+    color: #A0B0C8 !important;
+    font-size: 11px !important;
+  }
+
+  /* Hide-able chrome */
+  .hide-zoom .maplibregl-ctrl-top-left  { display: none !important; }
+  .hide-attr .maplibregl-ctrl-bottom-right { display: none !important; }
+  .hide-scale .maplibregl-ctrl-bottom-left { display: none !important; }
+
+  /* MapLibre popup + tooltip theming */
+  .maplibregl-popup-content {
+    background: rgba(26,39,68,0.95); color: #E0E6F0;
+    border: 1px solid #3A5070; border-radius: 6px;
+    font-size: 13px; padding: 8px 12px;
+  }
+  .maplibregl-popup-tip { border-top-color: rgba(26,39,68,0.95) !important; }
+
+  /* Export-frame overlay (fixed to viewport, drawn on top of the map) */
+  #export-frame {
+    position: absolute; pointer-events: none; display: none;
+    border: 2px dashed #F5A623;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    z-index: 600;
+  }
+  #export-frame.active { pointer-events: auto; cursor: move; }
+  #export-frame .grip {
+    position: absolute; width: 14px; height: 14px;
+    background: #F5A623; border: 2px solid #fff;
+    border-radius: 50%;
+  }
+  #export-frame .grip.nw { left: -8px;  top: -8px;    cursor: nwse-resize; }
+  #export-frame .grip.ne { right: -8px; top: -8px;    cursor: nesw-resize; }
+  #export-frame .grip.sw { left: -8px;  bottom: -8px; cursor: nesw-resize; }
+  #export-frame .grip.se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+  #export-frame .ratio-label {
+    position: absolute; top: -26px; left: 0;
+    background: #F5A623; color: #1A1A1A;
+    font: 600 11px/1 -apple-system, sans-serif;
+    padding: 4px 8px; border-radius: 4px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="map">
+  <div id="export-frame">
+    <div class="ratio-label"></div>
+    <div class="grip nw"></div>
+    <div class="grip ne"></div>
+    <div class="grip sw"></div>
+    <div class="grip se"></div>
+  </div>
+</div>
+<script src="maplibre-gl.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// Basemap presets — OpenFreeMap vector tile styles (no API key required)
+// ---------------------------------------------------------------------------
+const BASEMAPS = {
+  carto_dark:    'https://tiles.openfreemap.org/styles/liberty',
+  carto_light:   'https://tiles.openfreemap.org/styles/positron',
+  carto_voyager: 'https://tiles.openfreemap.org/styles/bright',
+  osm:           'https://tiles.openfreemap.org/styles/positron',
+};
+
+// ---------------------------------------------------------------------------
+// Map setup
+// ---------------------------------------------------------------------------
+const map = new maplibregl.Map({
+  container: 'map',
+  style: BASEMAPS.carto_dark,
+  center: [0, 20],
+  zoom: 2,
+  attributionControl: false,
+  antialias: false,         // faster GPU rendering
+  fadeDuration: 0,          // no tile fade-in delay
+  maxTileCacheSize: 100,    // cap memory usage
+});
+
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+
+// ---------------------------------------------------------------------------
+// Route data store — survives setStyle() resets
+// ---------------------------------------------------------------------------
+const _routeData = new Map();    // id → {coords, color, name, is_waypoint}
+const _selectedIds = new Set();
+
+let BASE_WEIGHT    = 3;
+let BASE_OPACITY   = 0.5;
+let SEL_WEIGHT     = 5;
+let SEL_OPACITY    = 1.0;
+const HOVER_WEIGHT = 5;
+const SEL_COLOR    = '#F5A623';
+
+// Cached colour overrides applied after each style swap
+let _landColor  = null;
+let _seaColor   = null;
+let _labelColor = null;
+let _labelDensity = 'all';
+let _labelsVisible = true;
+let _parkAreasVisible = true;
+
+// Feature layer visibility state (persisted across basemap swaps)
+let _ferryVisible      = true;
+let _roadsVisible      = true;
+let _roadsDensity      = 'all';   // 'all' | 'major'
+let _boundariesVisible = true;
+let _boundaryColor     = null;
+let _boundaryWidth     = null;
+
+// ---------------------------------------------------------------------------
+// Route layer helpers
+// ---------------------------------------------------------------------------
+
+function _routeSourceId(id) { return 'route-src-' + id; }
+function _routeLayerId(id)  { return 'route-layer-' + id; }
+
+function _firstSymbolLayerId() {
+  const style = map.getStyle();
+  if (!style) return undefined;
+  const sym = style.layers.find(l => l.type === 'symbol');
+  return sym ? sym.id : undefined;
+}
+
+function _addRouteLayer(id, data) {
+  const srcId = _routeSourceId(id);
+  const lyrId = _routeLayerId(id);
+
+  // Build GeoJSON
+  let geojson;
+  if (data.is_waypoint) {
+    geojson = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [data.coords[0][1], data.coords[0][0]] },
+      properties: { name: data.name },
+    };
+  } else {
+    // coords come in as [[lat,lng],...] from Python — flip to [lng,lat] for GeoJSON
+    const coords = data.coords.map(c => [c[1], c[0]]);
+    geojson = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties: { name: data.name },
+    };
+  }
+
+  if (map.getSource(srcId)) {
+    map.getSource(srcId).setData(geojson);
+  } else {
+    map.addSource(srcId, { type: 'geojson', data: geojson });
+    const before = _firstSymbolLayerId();
+    if (data.is_waypoint) {
+      map.addLayer({
+        id: lyrId, type: 'circle', source: srcId,
+        paint: {
+          'circle-radius': 7,
+          'circle-color': data.color || '#5B9BD5',
+          'circle-stroke-color': '#FFFFFF',
+          'circle-stroke-width': 2,
+          'circle-opacity': BASE_OPACITY,
+        },
+      }, before);
+    } else {
+      const sel = _selectedIds.has(id);
+      map.addLayer({
+        id: lyrId, type: 'line', source: srcId,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': sel ? SEL_COLOR : (data.color || '#5B9BD5'),
+          'line-width': sel ? SEL_WEIGHT : BASE_WEIGHT,
+          'line-opacity': sel ? SEL_OPACITY : BASE_OPACITY,
+        },
+      }, before);
+    }
+
+    // Click — notify Python to select this route in the panel
+    map.on('click', lyrId, (e) => {
+      const id = lyrId.replace('route-layer-', '');
+      console.log('gpx:select:' + id);
+    });
+
+    // Hover popup
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    map.on('mouseenter', lyrId, (e) => {
+      map.getCanvas().style.cursor = 'pointer';
+      const name = e.features[0].properties.name || '';
+      popup.setLngLat(e.lngLat).setHTML('<strong>' + name + '</strong>').addTo(map);
+      if (!data.is_waypoint) {
+        map.setPaintProperty(lyrId, 'line-width', HOVER_WEIGHT);
+        map.setPaintProperty(lyrId, 'line-opacity', 1.0);
+      }
+    });
+    map.on('mouseleave', lyrId, () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+      if (!data.is_waypoint) _applyRouteStyle(id);
+    });
+  }
+}
+
+function _applyRouteStyle(id) {
+  const lyrId = _routeLayerId(id);
+  if (!map.getLayer(lyrId)) return;
+  const data = _routeData.get(id);
+  if (!data) return;
+  const sel = _selectedIds.has(id);
+  if (data.is_waypoint) {
+    map.setPaintProperty(lyrId, 'circle-color', sel ? SEL_COLOR : (data.color || '#5B9BD5'));
+    map.setPaintProperty(lyrId, 'circle-opacity', sel ? SEL_OPACITY : BASE_OPACITY);
+  } else {
+    map.setPaintProperty(lyrId, 'line-color', sel ? SEL_COLOR : (data.color || '#5B9BD5'));
+    map.setPaintProperty(lyrId, 'line-width', sel ? SEL_WEIGHT : BASE_WEIGHT);
+    map.setPaintProperty(lyrId, 'line-opacity', sel ? SEL_OPACITY : BASE_OPACITY);
+  }
+}
+
+function _applyAllRouteStyles() {
+  for (const id of _routeData.keys()) _applyRouteStyle(id);
+}
+
+function _removeRouteLayer(id) {
+  const lyrId = _routeLayerId(id);
+  const srcId = _routeSourceId(id);
+  if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+// ---------------------------------------------------------------------------
+// Restore routes + colour overrides after basemap style swap
+// ---------------------------------------------------------------------------
+function _restoreRouteLayers() {
+  for (const [id, data] of _routeData) {
+    _addRouteLayer(id, data);
+  }
+  _applyAllRouteStyles();
+  if (_landColor)    _setLandColor(_landColor);
+  if (_seaColor)     _setSeaColor(_seaColor);
+  if (_labelColor)   _setLabelColor(_labelColor);
+  if (_labelDensity) _setLabelDensity(_labelDensity);  // respects _labelsVisible
+  _setParkAreasVisible(_parkAreasVisible);
+  _setFerryVisible(_ferryVisible);
+  _setRoadsVisible(_roadsVisible, _roadsDensity);
+  _setBoundaryStyle(_boundariesVisible, _boundaryColor, _boundaryWidth);
+}
+
+// ---------------------------------------------------------------------------
+// Basemap switching
+// ---------------------------------------------------------------------------
+let _currentBasemap = 'carto_dark';
+
+// Signal Python once MapLibre's initial style is fully loaded.
+// Python waits for this before calling apply_initial_state() and syncing routes,
+// so we never call setStyle() on a map whose style is still loading.
+map.on('load', function() {
+  console.log('gpx:mapready');
+});
+
+function _applyBasemap(key) {
+  const url = BASEMAPS[key] || BASEMAPS.carto_dark;
+  if (_currentBasemap === key && map.isStyleLoaded()) {
+    // Already showing this basemap with a loaded style — setStyle() is not needed.
+    // Colour/label changes from the bridge calls that follow will be applied
+    // directly to the live style; route layers are added by setRoute() calls.
+    return;
+  }
+  _currentBasemap = key;
+  map.setStyle(url);
+  // style.load fires only when isStyleLoaded() is true — safe to add layers and set paint props
+  map.once('style.load', _restoreRouteLayers);
+}
+
+// ---------------------------------------------------------------------------
+// Land / sea / label colour helpers (called directly + from _restoreRouteLayers)
+// ---------------------------------------------------------------------------
+function _setLandColor(hex) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (l.type === 'background') {
+      map.setPaintProperty(l.id, 'background-color', hex);
+    } else if (l.type === 'fill' && (
+      l.id.includes('earth') || l.id.includes('land') || src === 'earth'
+    )) {
+      map.setPaintProperty(l.id, 'fill-color', hex);
+    }
+  }
+}
+
+function _setSeaColor(hex) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (l.type === 'fill' && (
+      l.id.includes('water') || l.id.includes('ocean') || l.id.includes('sea') ||
+      src === 'water'
+    )) {
+      map.setPaintProperty(l.id, 'fill-color', hex);
+    }
+  }
+}
+
+function _setLabelColor(hex) {
+  const style = map.getStyle();
+  if (!style) return;
+  const halo = hex + '40';
+  for (const l of style.layers) {
+    if (l.type === 'symbol' && l.layout && l.layout['text-field']) {
+      try { map.setPaintProperty(l.id, 'text-color', hex); } catch(e) {}
+      try { map.setPaintProperty(l.id, 'text-halo-color', halo); } catch(e) {}
+    }
+  }
+}
+
+function _setLabelDensity(level) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    if (l.type !== 'symbol' || !l.layout || !l.layout['text-field']) continue;
+    const id = l.id;
+    // Respect global label visibility first — density only applies when labels are on
+    let shouldShow = _labelsVisible;
+    if (shouldShow && level === 'countries') {
+      // Only country / continent labels — exclude state/province layers (e.g. Austrian Bundesländer)
+      shouldShow = id.includes('country') || id.includes('continent');
+    } else if (shouldShow && level === 'cities') {
+      shouldShow = !id.includes('poi') && !id.includes('street') && !id.includes('road') &&
+                  !id.includes('housenumber') && !id.includes('suburb') && !id.includes('neighbourhood');
+    }
+    try { map.setLayoutProperty(id, 'visibility', shouldShow ? 'visible' : 'none'); } catch(e) {}
+  }
+}
+
+function _setParkAreasVisible(visible) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    const id = l.id;
+    if (src === 'park' || id.includes('park') || id.includes('nature_reserve') ||
+        id.includes('protected') || id.includes('national_park')) {
+      try { map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch(e) {}
+    }
+  }
+}
+
+function _setFerryVisible(visible) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (src === 'transportation' && (l.id.includes('ferry') || l.id.includes('ship'))) {
+      try { map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none'); } catch(e) {}
+    }
+  }
+}
+
+function _setRoadsVisible(visible, density) {
+  const style = map.getStyle();
+  if (!style) return;
+  // Major road class keywords — used when density === 'major'
+  const majorKw = ['motorway', 'trunk', 'primary', 'secondary'];
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    // Only transportation line/fill/symbol layers — skip ferry and our own route layers
+    if (src !== 'transportation') continue;
+    if (l.id.startsWith('route-layer-') || l.id.startsWith('route-casing-')) continue;
+    if (l.id.includes('ferry') || l.id.includes('ship')) continue;
+    if (l.type !== 'line' && l.type !== 'fill' && l.type !== 'symbol') continue;
+
+    let show = visible;
+    if (visible && density === 'major') {
+      show = majorKw.some(kw => l.id.includes(kw));
+    }
+    try { map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none'); } catch(e) {}
+  }
+}
+
+function _setBoundaryStyle(visible, color, width) {
+  const style = map.getStyle();
+  if (!style) return;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (src !== 'boundary') continue;
+    try {
+      map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none');
+      if (visible && color) map.setPaintProperty(l.id, 'line-color', color);
+      if (visible && width != null) map.setPaintProperty(l.id, 'line-width', width);
+    } catch(e) {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Export frame overlay
+// ---------------------------------------------------------------------------
+const exportFrame = document.getElementById('export-frame');
+const exportRatioLabel = exportFrame.querySelector('.ratio-label');
+let _exportAspect = null;
+let _exportRect   = null;
+let _exportDrag   = null;
+
+function _setExportRect(rect) {
+  _exportRect = rect;
+  exportFrame.style.left   = rect.x + 'px';
+  exportFrame.style.top    = rect.y + 'px';
+  exportFrame.style.width  = rect.w + 'px';
+  exportFrame.style.height = rect.h + 'px';
+}
+
+function _clampRect(r) {
+  const c = map.getContainer();
+  const W = c.clientWidth, H = c.clientHeight;
+  if (r.w < 60) r.w = 60;
+  if (r.h < 40) r.h = 40;
+  if (r.w > W - 4) r.w = W - 4;
+  if (r.h > H - 4) r.h = H - 4;
+  if (r.x < 2) r.x = 2;
+  if (r.y < 2) r.y = 2;
+  if (r.x + r.w > W - 2) r.x = W - 2 - r.w;
+  if (r.y + r.h > H - 2) r.y = H - 2 - r.h;
+  return r;
+}
+
+function _showExportFrame(aspect, label) {
+  _exportAspect = aspect;
+  exportRatioLabel.textContent = label || (aspect ? aspect.toFixed(2) : '');
+  const c = map.getContainer();
+  const W = c.clientWidth, H = c.clientHeight;
+  let h = Math.round(H * 0.7);
+  let w = Math.round(h * (aspect || 1.5));
+  if (w > W * 0.9) { w = Math.round(W * 0.9); h = Math.round(w / (aspect || 1.5)); }
+  const x = Math.round((W - w) / 2);
+  const y = Math.round((H - h) / 2);
+  _setExportRect(_clampRect({ x, y, w, h }));
+  exportFrame.style.display = 'block';
+  exportFrame.classList.add('active');
+}
+
+function _hideExportFrame() {
+  exportFrame.style.display = 'none';
+  exportFrame.classList.remove('active');
+  _exportRect = null;
+}
+
+function _onFrameMouseDown(ev) {
+  const target = ev.target;
+  const grip = target.classList && target.classList.contains('grip') ? target : null;
+  _exportDrag = {
+    startX: ev.clientX, startY: ev.clientY,
+    rect: { ..._exportRect },
+    grip: grip ? Array.from(grip.classList).find(c => ['nw','ne','sw','se'].includes(c)) : null,
+  };
+  ev.preventDefault();
+  ev.stopPropagation();
+  document.addEventListener('mousemove', _onFrameMouseMove);
+  document.addEventListener('mouseup',   _onFrameMouseUp);
+}
+
+function _onFrameMouseMove(ev) {
+  if (!_exportDrag) return;
+  const dx = ev.clientX - _exportDrag.startX;
+  const dy = ev.clientY - _exportDrag.startY;
+  const r0 = _exportDrag.rect;
+  let r = { ...r0 };
+
+  if (!_exportDrag.grip) {
+    r.x = r0.x + dx;
+    r.y = r0.y + dy;
+  } else {
+    const g = _exportDrag.grip;
+    if (g === 'se') { r.w = r0.w + dx; r.h = r0.h + dy; }
+    if (g === 'sw') { r.x = r0.x + dx; r.w = r0.w - dx; r.h = r0.h + dy; }
+    if (g === 'ne') { r.w = r0.w + dx; r.y = r0.y + dy; r.h = r0.h - dy; }
+    if (g === 'nw') { r.x = r0.x + dx; r.y = r0.y + dy; r.w = r0.w - dx; r.h = r0.h - dy; }
+    if (_exportAspect) {
+      if (Math.abs(dx) > Math.abs(dy)) {
+        const newH = r.w / _exportAspect;
+        if (g === 'nw' || g === 'ne') r.y = r0.y + (r0.h - newH);
+        r.h = newH;
+      } else {
+        const newW = r.h * _exportAspect;
+        if (g === 'nw' || g === 'sw') r.x = r0.x + (r0.w - newW);
+        r.w = newW;
+      }
+    }
+  }
+  _setExportRect(_clampRect(r));
+}
+
+function _onFrameMouseUp() {
+  _exportDrag = null;
+  document.removeEventListener('mousemove', _onFrameMouseMove);
+  document.removeEventListener('mouseup',   _onFrameMouseUp);
+}
+
+exportFrame.addEventListener('mousedown', _onFrameMouseDown);
+
+function _frameBounds() {
+  if (!_exportRect) return null;
+  // MapLibre unproject returns {lng, lat}
+  const tl = map.unproject([_exportRect.x, _exportRect.y]);
+  const br = map.unproject([_exportRect.x + _exportRect.w, _exportRect.y + _exportRect.h]);
+  return {
+    north: Math.max(tl.lat, br.lat),
+    south: Math.min(tl.lat, br.lat),
+    east:  Math.max(tl.lng, br.lng),
+    west:  Math.min(tl.lng, br.lng),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// mapBridge — called from Python via runJavaScript
+// ---------------------------------------------------------------------------
+window.mapBridge = {
+
+  // ---- routes ----------------------------------------------------------
+
+  setRoute(data) {
+    const id = String(data.id);
+    _routeData.set(id, {
+      coords: data.coords,
+      color: data.color || '#5B9BD5',
+      name: data.name || '',
+      is_waypoint: !!data.is_waypoint,
+    });
+    // Only add the layer when the style is fully loaded; otherwise _restoreRouteLayers
+    // (triggered by style.load) will add it once the style is ready.
+    if (map.isStyleLoaded()) {
+      _addRouteLayer(id, _routeData.get(id));
+    }
+  },
+
+  setVisibleRoutes(ids) {
+    const keep = new Set(ids.map(String));
+    for (const id of Array.from(_routeData.keys())) {
+      if (!keep.has(id)) {
+        _removeRouteLayer(id);
+        _routeData.delete(id);
+        _selectedIds.delete(id);
+      }
+    }
+  },
+
+  selectRoutes(ids) {
+    _selectedIds.clear();
+    ids.forEach(id => _selectedIds.add(String(id)));
+    _applyAllRouteStyles();
+  },
+
+  hoverRoute(id) {
+    const sid = String(id);
+    const lyrId = _routeLayerId(sid);
+    const data = _routeData.get(sid);
+    if (!map.getLayer(lyrId) || !data) return;
+    if (data.is_waypoint) {
+      map.setPaintProperty(lyrId, 'circle-opacity', 1.0);
+    } else {
+      map.setPaintProperty(lyrId, 'line-width', HOVER_WEIGHT);
+      map.setPaintProperty(lyrId, 'line-opacity', 1.0);
+    }
+  },
+
+  clearHover() { _applyAllRouteStyles(); },
+
+  fitBounds(ids) {
+    const targets = (ids && ids.length) ? ids.map(String) : Array.from(_routeData.keys());
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    for (const id of targets) {
+      const data = _routeData.get(id);
+      if (!data) continue;
+      for (const c of data.coords) {
+        // coords are [lat, lng] from Python
+        const lat = c[0], lng = c[1];
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+      }
+    }
+    if (isFinite(minLat)) {
+      map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, maxZoom: 14 });
+    }
+  },
+
+  fitToBounds(b) {
+    if (!b) return;
+    map.fitBounds([[b.west, b.south], [b.east, b.north]], { animate: false });
+  },
+
+  updateRouteColor(id, color) {
+    const sid = String(id);
+    const data = _routeData.get(sid);
+    if (data) { data.color = color; _applyRouteStyle(sid); }
+  },
+
+  clearAll() {
+    for (const id of Array.from(_routeData.keys())) _removeRouteLayer(id);
+    _routeData.clear();
+    _selectedIds.clear();
+  },
+
+  // ---- styling ---------------------------------------------------------
+
+  setBasemap(key) { _applyBasemap(key); },
+
+  setBackgroundColor(hex) {
+    // Backward compat — treat as land colour
+    _landColor = hex;
+    _setLandColor(hex);
+  },
+
+  setLandColor(hex) {
+    _landColor = hex;
+    _setLandColor(hex);
+  },
+
+  setSeaColor(hex) {
+    _seaColor = hex;
+    _setSeaColor(hex);
+  },
+
+  setLabelColor(hex) {
+    _labelColor = hex;
+    _setLabelColor(hex);
+  },
+
+  setLabelDensity(level) {
+    _labelDensity = level;
+    _setLabelDensity(level);
+  },
+
+  setTileFilter(opts) {
+    // No-op with vector tiles — colours are controlled per-layer
+  },
+
+  setLabelStyle(opts) {
+    _labelsVisible = opts.visible !== false;
+    // Re-apply density with updated _labelsVisible — _setLabelDensity handles hiding
+    _setLabelDensity(_labelDensity);
+    if (opts.tint) {
+      _labelColor = opts.tint;
+      _setLabelColor(opts.tint);
+    }
+  },
+
+  setParkAreasVisible(visible) {
+    _parkAreasVisible = visible;
+    _setParkAreasVisible(visible);
+  },
+
+  setFerryVisible(visible) {
+    _ferryVisible = visible;
+    _setFerryVisible(visible);
+  },
+
+  setRoadsVisible(visible, density) {
+    _roadsVisible = visible;
+    _roadsDensity = density || 'all';
+    _setRoadsVisible(visible, _roadsDensity);
+  },
+
+  setBoundaryStyle(opts) {
+    _boundariesVisible = opts.visible !== false;
+    if (opts.color != null) _boundaryColor = opts.color;
+    if (opts.width != null) _boundaryWidth  = opts.width;
+    _setBoundaryStyle(_boundariesVisible, _boundaryColor, _boundaryWidth);
+  },
+
+  setRouteStyle(opts) {
+    if (opts.weight       != null) BASE_WEIGHT  = opts.weight;
+    if (opts.opacity      != null) BASE_OPACITY = opts.opacity;
+    if (opts.selectedWeight  != null) SEL_WEIGHT  = opts.selectedWeight;
+    if (opts.selectedOpacity != null) SEL_OPACITY = opts.selectedOpacity;
+    _applyAllRouteStyles();
+  },
+
+  setControlsVisible(opts) {
+    const c = map.getContainer();
+    c.classList.toggle('hide-zoom',  opts.zoom === false);
+    c.classList.toggle('hide-attr',  opts.attribution === false);
+    c.classList.toggle('hide-scale', opts.scale === false);
+  },
+
+  // ---- export frame ----------------------------------------------------
+  showExportFrame(opts) {
+    _showExportFrame(opts.aspect || null, opts.label || null);
+  },
+
+  hideExportFrame() { _hideExportFrame(); },
+
+  getExportFrameBounds() { return _frameBounds(); },
+};
+
+// ---------------------------------------------------------------------------
+// Tile-ready detection for export — arms an idle listener
+// ---------------------------------------------------------------------------
+window._tilesReady = false;
+
+window._armTileReady = function() {
+  window._tilesReady = false;
+  map.once('idle', function() { window._tilesReady = true; });
+};
+
+// Legacy compat — Python code may still call mapTilesLoaded()
+window.mapTilesLoaded = function() {
+  return new Promise((resolve) => {
+    if (map.loaded()) { resolve(true); return; }
+    map.once('idle', () => resolve(true));
+    setTimeout(() => resolve(true), 8000);
+  });
+};
+</script>
+</body>
+</html>

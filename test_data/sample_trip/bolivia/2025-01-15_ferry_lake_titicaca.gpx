@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TestGenerator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Lake Titicaca Ferry</name></metadata>
+  
+  <trk>
+    <name>Ferry</name>
+    <trkseg>
+      <trkpt lat="-16.0209" lon="-69.047168"></trkpt>
+      <trkpt lat="-16.026463" lon="-69.032457"></trkpt>
+      <trkpt lat="-16.030612" lon="-69.017703"></trkpt>
+      <trkpt lat="-16.046664" lon="-68.997451"></trkpt>
+      <trkpt lat="-16.053011" lon="-68.998423"></trkpt>
+      <trkpt lat="-16.073032" lon="-68.977582"></trkpt>
+      <trkpt lat="-16.080575" lon="-68.969023"></trkpt>
+      <trkpt lat="-16.078964" lon="-68.947888"></trkpt>
+      <trkpt lat="-16.090204" lon="-68.949984"></trkpt>
+      <trkpt lat="-16.097908" lon="-68.929798"></trkpt>
+      <trkpt lat="-16.116634" lon="-68.92705"></trkpt>
+      <trkpt lat="-16.117047" lon="-68.905997"></trkpt>
+      <trkpt lat="-16.122747" lon="-68.904377"></trkpt>
+      <trkpt lat="-16.133533" lon="-68.880026"></trkpt>
+      <trkpt lat="-16.146096" lon="-68.874639"></trkpt>
+      <trkpt lat="-16.16053" lon="-68.85556"></trkpt>
+      <trkpt lat="-16.165531" lon="-68.845084"></trkpt>
+      <trkpt lat="-16.172479" lon="-68.844919"></trkpt>
+      <trkpt lat="-16.188028" lon="-68.822325"></trkpt>
+      <trkpt lat="-16.205181" lon="-68.821413"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

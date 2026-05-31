@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TestGenerator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Bus Huaraz to Lima</name></metadata>
+  
+  <trk>
+    <name>Bus</name>
+    <trkseg>
+      <trkpt lat="-9.518302" lon="-77.525803"></trkpt>
+      <trkpt lat="-9.584681" lon="-77.509492"></trkpt>
+      <trkpt lat="-9.6357" lon="-77.509757"></trkpt>
+      <trkpt lat="-9.689781" lon="-77.48957"></trkpt>
+      <trkpt lat="-9.738921" lon="-77.489706"></trkpt>
+      <trkpt lat="-9.791033" lon="-77.468506"></trkpt>
+      <trkpt lat="-9.838267" lon="-77.468013"></trkpt>
+      <trkpt lat="-9.887808" lon="-77.458539"></trkpt>
+      <trkpt lat="-9.947428" lon="-77.453355"></trkpt>
+      <trkpt lat="-9.988741" lon="-77.448497"></trkpt>
+      <trkpt lat="-10.043807" lon="-77.425019"></trkpt>
+      <trkpt lat="-10.08381" lon="-77.410573"></trkpt>
+      <trkpt lat="-10.147614" lon="-77.406755"></trkpt>
+      <trkpt lat="-10.204105" lon="-77.39661"></trkpt>
+      <trkpt lat="-10.25286" lon="-77.395994"></trkpt>
+      <trkpt lat="-10.300168" lon="-77.378322"></trkpt>
+      <trkpt lat="-10.350113" lon="-77.365646"></trkpt>
+      <trkpt lat="-10.41161" lon="-77.358733"></trkpt>
+      <trkpt lat="-10.445031" lon="-77.341622"></trkpt>
+      <trkpt lat="-10.495739" lon="-77.347549"></trkpt>
+      <trkpt lat="-10.549911" lon="-77.334545"></trkpt>
+      <trkpt lat="-10.608205" lon="-77.323245"></trkpt>
+      <trkpt lat="-10.663802" lon="-77.302456"></trkpt>
+      <trkpt lat="-10.719516" lon="-77.295013"></trkpt>
+      <trkpt lat="-10.766298" lon="-77.295559"></trkpt>
+      <trkpt lat="-10.804125" lon="-77.282353"></trkpt>
+      <trkpt lat="-10.866872" lon="-77.271725"></trkpt>
+      <trkpt lat="-10.91815" lon="-77.257172"></trkpt>
+      <trkpt lat="-10.975259" lon="-77.260391"></trkpt>
+      <trkpt lat="-11.010107" lon="-77.240317"></trkpt>
+      <trkpt lat="-11.070073" lon="-77.224604"></trkpt>
+      <trkpt lat="-11.112138" lon="-77.215974"></trkpt>
+      <trkpt lat="-11.176288" lon="-77.201274"></trkpt>
+      <trkpt lat="-11.222715" lon="-77.2011"></trkpt>
+      <trkpt lat="-11.267327" lon="-77.194563"></trkpt>
+      <trkpt lat="-11.318143" lon="-77.176607"></trkpt>
+      <trkpt lat="-11.369708" lon="-77.178444"></trkpt>
+      <trkpt lat="-11.434708" lon="-77.167303"></trkpt>
+      <trkpt lat="-11.475453" lon="-77.149159"></trkpt>
+      <trkpt lat="-11.526349" lon="-77.133147"></trkpt>
+      <trkpt lat="-11.583905" lon="-77.124357"></trkpt>
+      <trkpt lat="-11.6408" lon="-77.112959"></trkpt>
+      <trkpt lat="-11.6887" lon="-77.112839"></trkpt>
+      <trkpt lat="-11.741186" lon="-77.111145"></trkpt>
+      <trkpt lat="-11.794831" lon="-77.095958"></trkpt>
+      <trkpt lat="-11.832458" lon="-77.083735"></trkpt>
+      <trkpt lat="-11.889825" lon="-77.06277"></trkpt>
+      <trkpt lat="-11.948052" lon="-77.07176"></trkpt>
+      <trkpt lat="-11.988244" lon="-77.051968"></trkpt>
+      <trkpt lat="-12.050129" lon="-77.041892"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

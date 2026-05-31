@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1.1" creator="AllTrails.com" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name><![CDATA[Sabbaday Falls]]></name>
+    <desc><![CDATA[]]></desc>
+    <link href="http://www.alltrails.com">
+      <text>AllTrails, LLC</text>
+    </link>
+    <bounds minlat="43.99366" minlon="-71.39649" maxlat="43.99739" maxlon="-71.39322"/>
+  </metadata>
+  <trk>
+    <name><![CDATA[Sabbaday Falls]]></name>
+    <src>AllTrails</src>
+    <trkseg>
+      <trkpt lat="43.99739" lon="-71.39323">
+        <ele>405.0</ele>
+      </trkpt>
+      <trkpt lat="43.99739" lon="-71.39322">
+        <ele>405.0</ele>
+      </trkpt>
+      <trkpt lat="43.99725" lon="-71.39339">
+        <ele>406.0</ele>
+      </trkpt>
+      <trkpt lat="43.99718" lon="-71.39355">
+        <ele>407.0</ele>
+      </trkpt>
+      <trkpt lat="43.99705" lon="-71.39377">
+        <ele>408.72</ele>
+      </trkpt>
+      <trkpt lat="43.99658" lon="-71.3943">
+        <ele>414.44</ele>
+      </trkpt>
+      <trkpt lat="43.99618" lon="-71.39493">
+        <ele>416.0</ele>
+      </trkpt>
+      <trkpt lat="43.99611" lon="-71.39526">
+        <ele>417.0</ele>
+      </trkpt>
+      <trkpt lat="43.99583" lon="-71.39578">
+        <ele>419.44</ele>
+      </trkpt>
+      <trkpt lat="43.9957" lon="-71.39611">
+        <ele>421.55</ele>
+      </trkpt>
+      <trkpt lat="43.99549" lon="-71.39629">
+        <ele>422.27</ele>
+      </trkpt>
+      <trkpt lat="43.99524" lon="-71.39644">
+        <ele>424.29</ele>
+      </trkpt>
+      <trkpt lat="43.99506" lon="-71.39649">
+        <ele>425.44</ele>
+      </trkpt>
+      <trkpt lat="43.99482" lon="-71.39648">
+        <ele>427.93</ele>
+      </trkpt>
+      <trkpt lat="43.99374" lon="-71.39643">
+        <ele>436.88</ele>
+      </trkpt>
+      <trkpt lat="43.99366" lon="-71.39619">
+        <ele>437.47</ele>
+      </trkpt>
+      <trkpt lat="43.99369" lon="-71.39617">
+        <ele>437.15</ele>
+      </trkpt>
+      <trkpt lat="43.99372" lon="-71.39627">
+        <ele>436.23</ele>
+      </trkpt>
+      <trkpt lat="43.99369" lon="-71.39617">
+        <ele>437.15</ele>
+      </trkpt>
+      <trkpt lat="43.99366" lon="-71.39619">
+        <ele>437.47</ele>
+      </trkpt>
+      <trkpt lat="43.99374" lon="-71.39643">
+        <ele>436.88</ele>
+      </trkpt>
+      <trkpt lat="43.99482" lon="-71.39648">
+        <ele>427.93</ele>
+      </trkpt>
+      <trkpt lat="43.99506" lon="-71.39649">
+        <ele>425.44</ele>
+      </trkpt>
+      <trkpt lat="43.99524" lon="-71.39644">
+        <ele>424.29</ele>
+      </trkpt>
+      <trkpt lat="43.99549" lon="-71.39629">
+        <ele>422.27</ele>
+      </trkpt>
+      <trkpt lat="43.9957" lon="-71.39611">
+        <ele>421.55</ele>
+      </trkpt>
+      <trkpt lat="43.99583" lon="-71.39578">
+        <ele>419.44</ele>
+      </trkpt>
+      <trkpt lat="43.99611" lon="-71.39526">
+        <ele>417.0</ele>
+      </trkpt>
+      <trkpt lat="43.99618" lon="-71.39493">
+        <ele>416.0</ele>
+      </trkpt>
+      <trkpt lat="43.99658" lon="-71.3943">
+        <ele>414.44</ele>
+      </trkpt>
+      <trkpt lat="43.99705" lon="-71.39377">
+        <ele>408.72</ele>
+      </trkpt>
+      <trkpt lat="43.99718" lon="-71.39355">
+        <ele>407.0</ele>
+      </trkpt>
+      <trkpt lat="43.99725" lon="-71.39339">
+        <ele>406.0</ele>
+      </trkpt>
+      <trkpt lat="43.99739" lon="-71.39322">
+        <ele>405.0</ele>
+      </trkpt>
+      <trkpt lat="43.99739" lon="-71.39323">
+        <ele>405.0</ele>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

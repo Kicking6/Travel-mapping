@@ -136,11 +136,30 @@ let _parkAreasVisible = true;
 
 // Feature layer visibility state (persisted across basemap swaps)
 let _ferryVisible      = true;
+let _ferryColor        = null;
+let _ferryWidth        = null;
 let _roadsVisible      = true;
 let _roadsDensity      = 'all';   // 'all' | 'major'
+let _roadColor         = null;
+let _roadWidth         = null;
 let _boundariesVisible = true;
 let _boundaryColor     = null;
 let _boundaryWidth     = null;
+// Split state/province boundaries
+let _stateVisible      = true;
+let _stateColor        = null;
+let _stateWidth        = null;
+let _provinceVisible   = true;
+let _provinceColor     = null;
+let _provinceWidth     = null;
+let _useSplitBoundaries = false;  // true once split controls are used
+// Rendering / smoothing
+let _smoothingEnabled  = true;
+let _renderPixelRatio  = null;   // null = device default
+// POIs
+let _poisVisible       = true;
+let _poiStyles         = {};     // type → {color, size}
+const _poiData         = new Map(); // type → [{id, name, lat, lon, type, notes}]
 
 // ---------------------------------------------------------------------------
 // Route layer helpers
@@ -196,12 +215,14 @@ function _addRouteLayer(id, data) {
       }, before);
     } else {
       const sel = _selectedIds.has(id);
+      // Per-route weight override takes precedence over global BASE_WEIGHT
+      const routeW = (data.weight && data.weight > 0) ? data.weight : BASE_WEIGHT;
       map.addLayer({
         id: lyrId, type: 'line', source: srcId,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': sel ? SEL_COLOR : (data.color || '#5B9BD5'),
-          'line-width': sel ? SEL_WEIGHT : BASE_WEIGHT,
+          'line-width': sel ? SEL_WEIGHT : routeW,
           'line-opacity': sel ? SEL_OPACITY : BASE_OPACITY,
         },
       }, before);
@@ -238,12 +259,13 @@ function _applyRouteStyle(id) {
   const data = _routeData.get(id);
   if (!data) return;
   const sel = _selectedIds.has(id);
+  const routeW = (data.weight && data.weight > 0) ? data.weight : BASE_WEIGHT;
   if (data.is_waypoint) {
     map.setPaintProperty(lyrId, 'circle-color', sel ? SEL_COLOR : (data.color || '#5B9BD5'));
     map.setPaintProperty(lyrId, 'circle-opacity', sel ? SEL_OPACITY : BASE_OPACITY);
   } else {
     map.setPaintProperty(lyrId, 'line-color', sel ? SEL_COLOR : (data.color || '#5B9BD5'));
-    map.setPaintProperty(lyrId, 'line-width', sel ? SEL_WEIGHT : BASE_WEIGHT);
+    map.setPaintProperty(lyrId, 'line-width', sel ? SEL_WEIGHT : routeW);
     map.setPaintProperty(lyrId, 'line-opacity', sel ? SEL_OPACITY : BASE_OPACITY);
   }
 }
@@ -272,9 +294,16 @@ function _restoreRouteLayers() {
   if (_labelColor)   _setLabelColor(_labelColor);
   if (_labelDensity) _setLabelDensity(_labelDensity);  // respects _labelsVisible
   _setParkAreasVisible(_parkAreasVisible);
-  _setFerryVisible(_ferryVisible);
-  _setRoadsVisible(_roadsVisible, _roadsDensity);
-  _setBoundaryStyle(_boundariesVisible, _boundaryColor, _boundaryWidth);
+  _setFerryVisible(_ferryVisible, _ferryColor, _ferryWidth);
+  _setRoadsVisible(_roadsVisible, _roadsDensity, _roadColor, _roadWidth);
+  if (_useSplitBoundaries) {
+    _setStateBoundaryStyle(_stateVisible, _stateColor, _stateWidth);
+    _setProvinceBoundaryStyle(_provinceVisible, _provinceColor, _provinceWidth);
+  } else {
+    _setBoundaryStyle(_boundariesVisible, _boundaryColor, _boundaryWidth);
+  }
+  if (_smoothingEnabled) _setSmoothingEnabled(true);
+  if (_poiData.size > 0) _restorePoiLayers();
 }
 
 // ---------------------------------------------------------------------------
@@ -379,18 +408,22 @@ function _setParkAreasVisible(visible) {
   }
 }
 
-function _setFerryVisible(visible) {
+function _setFerryVisible(visible, color, width) {
   const style = map.getStyle();
   if (!style) return;
   for (const l of style.layers) {
     const src = l['source-layer'] || '';
     if (src === 'transportation' && (l.id.includes('ferry') || l.id.includes('ship'))) {
-      try { map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none'); } catch(e) {}
+      try {
+        map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none');
+        if (visible && color) map.setPaintProperty(l.id, 'line-color', color);
+        if (visible && width != null) map.setPaintProperty(l.id, 'line-width', width);
+      } catch(e) {}
     }
   }
 }
 
-function _setRoadsVisible(visible, density) {
+function _setRoadsVisible(visible, density, color, width) {
   const style = map.getStyle();
   if (!style) return;
   // Major road class keywords — used when density === 'major'
@@ -407,7 +440,13 @@ function _setRoadsVisible(visible, density) {
     if (visible && density === 'major') {
       show = majorKw.some(kw => l.id.includes(kw));
     }
-    try { map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none'); } catch(e) {}
+    try {
+      map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none');
+      if (show && l.type === 'line') {
+        if (color) map.setPaintProperty(l.id, 'line-color', color);
+        if (width != null) map.setPaintProperty(l.id, 'line-width', width);
+      }
+    } catch(e) {}
   }
 }
 
@@ -423,6 +462,126 @@ function _setBoundaryStyle(visible, color, width) {
       if (visible && width != null) map.setPaintProperty(l.id, 'line-width', width);
     } catch(e) {}
   }
+}
+
+// Heuristic: layers whose ID suggests US-style admin areas (state-level)
+function _isStateLikeLayer(l) {
+  const id = l.id.toLowerCase();
+  return id.includes('state') || id.includes('admin-1') || id.includes('admin_1');
+}
+
+function _setStateBoundaryStyle(visible, color, width) {
+  const style = map.getStyle();
+  if (!style) return;
+  let anyMatched = false;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (src !== 'boundary') continue;
+    if (!_isStateLikeLayer(l)) continue;
+    anyMatched = true;
+    try {
+      map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none');
+      if (visible && color) map.setPaintProperty(l.id, 'line-color', color);
+      if (visible && width != null) map.setPaintProperty(l.id, 'line-width', width);
+    } catch(e) {}
+  }
+  // Fallback: if no state-specific layers found, apply to all boundaries
+  if (!anyMatched) _setBoundaryStyle(visible, color, width);
+}
+
+function _setProvinceBoundaryStyle(visible, color, width) {
+  const style = map.getStyle();
+  if (!style) return;
+  let anyMatched = false;
+  for (const l of style.layers) {
+    const src = l['source-layer'] || '';
+    if (src !== 'boundary') continue;
+    if (_isStateLikeLayer(l)) continue;  // skip state-specific layers
+    anyMatched = true;
+    try {
+      map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none');
+      if (visible && color) map.setPaintProperty(l.id, 'line-color', color);
+      if (visible && width != null) map.setPaintProperty(l.id, 'line-width', width);
+    } catch(e) {}
+  }
+  if (!anyMatched) _setBoundaryStyle(visible, color, width);
+}
+
+// Feature 6 — line smoothing (round caps/joins on base map line layers)
+function _setSmoothingEnabled(enabled) {
+  const style = map.getStyle();
+  if (!style) return;
+  const cap = enabled ? 'round' : 'butt';
+  const join = enabled ? 'round' : 'miter';
+  for (const l of style.layers) {
+    if (l.type !== 'line') continue;
+    if (l.id.startsWith('route-layer-') || l.id.startsWith('poi-layer-')) continue;
+    try {
+      map.setLayoutProperty(l.id, 'line-cap',  cap);
+      map.setLayoutProperty(l.id, 'line-join', join);
+    } catch(e) {}
+  }
+}
+
+// Feature 6 — render pixel ratio (sharpness / resolution)
+function _setRenderResolution(ratio) {
+  try {
+    if (ratio && ratio > 0) map.setPixelRatio(ratio);
+    else map.setPixelRatio(window.devicePixelRatio || 1);
+  } catch(e) {}
+}
+
+// Feature 7 — POI layers
+function _restorePoiLayers() {
+  // Re-add all POI layers (called after basemap swap)
+  for (const [type, items] of _poiData) {
+    _addPoiTypeLayer(type, items);
+  }
+}
+
+function _addPoiTypeLayer(type, items) {
+  const srcId = 'poi-src-' + type;
+  const lyrId = 'poi-layer-' + type;
+  const style = _poiStyles[type] || { color: '#FF6B6B', size: 8 };
+
+  const geojson = {
+    type: 'FeatureCollection',
+    features: items.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { name: p.name || '', type: p.type || '', notes: p.notes || '', poi_id: p.id }
+    }))
+  };
+
+  if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+  if (map.getSource(srcId)) map.removeSource(srcId);
+
+  map.addSource(srcId, { type: 'geojson', data: geojson });
+  map.addLayer({
+    id: lyrId, type: 'circle', source: srcId,
+    paint: {
+      'circle-radius': style.size || 8,
+      'circle-color': style.color || '#FF6B6B',
+      'circle-stroke-color': '#FFFFFF',
+      'circle-stroke-width': 2,
+      'circle-opacity': _poisVisible ? 1.0 : 0.0,
+    }
+  });
+
+  // Hover popup
+  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+  map.on('mouseenter', lyrId, (e) => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    const typeLabel = p.type ? '<em>' + p.type + '</em><br/>' : '';
+    popup.setLngLat(e.lngLat)
+      .setHTML('<strong>' + p.name + '</strong><br/>' + typeLabel + (p.notes ? p.notes : ''))
+      .addTo(map);
+  });
+  map.on('mouseleave', lyrId, () => {
+    map.getCanvas().style.cursor = '';
+    popup.remove();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -557,6 +716,7 @@ window.mapBridge = {
       color: data.color || '#5B9BD5',
       name: data.name || '',
       is_waypoint: !!data.is_waypoint,
+      weight: (data.weight && data.weight > 0) ? data.weight : null,
     });
     // Only add the layer when the style is fully loaded; otherwise _restoreRouteLayers
     // (triggered by style.load) will add it once the style is ready.
@@ -685,20 +845,125 @@ window.mapBridge = {
 
   setFerryVisible(visible) {
     _ferryVisible = visible;
-    _setFerryVisible(visible);
+    _setFerryVisible(visible, _ferryColor, _ferryWidth);
+  },
+
+  setFerryStyle(opts) {
+    _ferryVisible = opts.visible !== false;
+    if (opts.color != null) _ferryColor = opts.color;
+    if (opts.width != null) _ferryWidth  = opts.width;
+    _setFerryVisible(_ferryVisible, _ferryColor, _ferryWidth);
   },
 
   setRoadsVisible(visible, density) {
     _roadsVisible = visible;
     _roadsDensity = density || 'all';
-    _setRoadsVisible(visible, _roadsDensity);
+    _setRoadsVisible(visible, _roadsDensity, _roadColor, _roadWidth);
+  },
+
+  setRoadsStyle(opts) {
+    _roadsVisible = opts.visible !== false;
+    if (opts.density != null) _roadsDensity = opts.density;
+    if (opts.color   != null) _roadColor    = opts.color;
+    if (opts.width   != null) _roadWidth    = opts.width;
+    _setRoadsVisible(_roadsVisible, _roadsDensity, _roadColor, _roadWidth);
   },
 
   setBoundaryStyle(opts) {
+    _useSplitBoundaries = false;
     _boundariesVisible = opts.visible !== false;
     if (opts.color != null) _boundaryColor = opts.color;
     if (opts.width != null) _boundaryWidth  = opts.width;
     _setBoundaryStyle(_boundariesVisible, _boundaryColor, _boundaryWidth);
+  },
+
+  setStateBoundaryStyle(opts) {
+    _useSplitBoundaries = true;
+    _stateVisible = opts.visible !== false;
+    if (opts.color != null) _stateColor = opts.color;
+    if (opts.width != null) _stateWidth = opts.width;
+    _setStateBoundaryStyle(_stateVisible, _stateColor, _stateWidth);
+  },
+
+  setProvinceBoundaryStyle(opts) {
+    _useSplitBoundaries = true;
+    _provinceVisible = opts.visible !== false;
+    if (opts.color != null) _provinceColor = opts.color;
+    if (opts.width != null) _provinceWidth = opts.width;
+    _setProvinceBoundaryStyle(_provinceVisible, _provinceColor, _provinceWidth);
+  },
+
+  // Feature 6 — smoothing + render resolution
+  setSmoothingEnabled(enabled) {
+    _smoothingEnabled = !!enabled;
+    _setSmoothingEnabled(_smoothingEnabled);
+  },
+
+  setRenderResolution(ratio) {
+    _renderPixelRatio = ratio;
+    _setRenderResolution(ratio);
+  },
+
+  // Feature 7 — POI layers
+  setPOILayer(opts) {
+    // opts: { pois: [...], styles: {type: {color, size}} }
+    const pois   = opts.pois   || [];
+    const styles = opts.styles || {};
+    _poiStyles = styles;
+    _poiData.clear();
+
+    // Group by type
+    for (const poi of pois) {
+      const t = poi.type || 'other';
+      if (!_poiData.has(t)) _poiData.set(t, []);
+      _poiData.get(t).push(poi);
+    }
+
+    if (map.isStyleLoaded()) {
+      // Remove any existing POI layers first
+      const existing = map.getStyle().layers
+        .filter(l => l.id.startsWith('poi-layer-'))
+        .map(l => l.id);
+      for (const lid of existing) {
+        const sid = 'poi-src-' + lid.replace('poi-layer-', '');
+        if (map.getLayer(lid)) map.removeLayer(lid);
+        if (map.getSource(sid)) map.removeSource(sid);
+      }
+      _restorePoiLayers();
+    }
+  },
+
+  updatePOITypeStyle(opts) {
+    // opts: { type, color, size }
+    _poiStyles[opts.type] = { color: opts.color, size: opts.size };
+    const lyrId = 'poi-layer-' + opts.type;
+    if (map.getLayer(lyrId)) {
+      try {
+        if (opts.color) map.setPaintProperty(lyrId, 'circle-color',  opts.color);
+        if (opts.size)  map.setPaintProperty(lyrId, 'circle-radius', opts.size);
+      } catch(e) {}
+    }
+  },
+
+  setPOIsVisible(visible) {
+    _poisVisible = !!visible;
+    const opacity = _poisVisible ? 1.0 : 0.0;
+    for (const type of _poiData.keys()) {
+      const lyrId = 'poi-layer-' + type;
+      if (map.getLayer(lyrId)) {
+        try { map.setPaintProperty(lyrId, 'circle-opacity', opacity); } catch(e) {}
+      }
+    }
+  },
+
+  clearPOIs() {
+    for (const type of _poiData.keys()) {
+      const lyrId = 'poi-layer-' + type;
+      const srcId = 'poi-src-' + type;
+      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+      if (map.getSource(srcId)) map.removeSource(srcId);
+    }
+    _poiData.clear();
   },
 
   setRouteStyle(opts) {

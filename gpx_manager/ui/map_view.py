@@ -97,6 +97,18 @@ class MapView(QWebEngineView):
         print(f"[map] reload attempt {self._crash_count}")
         self.load(QUrl.fromLocalFile(str(_MAP_HTML.resolve())))
 
+    def refresh_map(self):
+        """Reload the map HTML while preserving all state (Feature 5).
+
+        All route data and style settings live in Python / SQLite, so a full
+        page reload is safe — map_ready will fire once MapLibre is ready and
+        MainWindow._on_map_load_finished will re-apply everything.
+        """
+        print("[map] user-initiated refresh")
+        self._ready = False
+        self._map_route_ids_clear_callback = None   # signal MainWindow to clear its cache
+        self.load(QUrl.fromLocalFile(str(_MAP_HTML.resolve())))
+
     def _js(self, script):
         if self._ready:
             self.page().runJavaScript(script)
@@ -111,10 +123,11 @@ class MapView(QWebEngineView):
     # Routes
     # ------------------------------------------------------------------
 
-    def set_route(self, route_id, coords, color, name, is_waypoint=False):
+    def set_route(self, route_id, coords, color, name, is_waypoint=False, weight=None):
         self._call("setRoute", {
             "id": route_id, "coords": coords, "color": color,
             "name": name, "is_waypoint": 1 if is_waypoint else 0,
+            "weight": weight,
         })
 
     def set_visible_routes(self, ids):
@@ -169,11 +182,45 @@ class MapView(QWebEngineView):
     def set_ferry_visible(self, visible: bool):
         self._call("setFerryVisible", visible)
 
+    def set_ferry_style(self, visible: bool, color: str | None = None, width: int | None = None):
+        self._call("setFerryStyle", {"visible": visible, "color": color, "width": width})
+
     def set_roads_visible(self, visible: bool, density: str = "all"):
         self._call("setRoadsVisible", visible, density)
 
+    def set_roads_style(self, visible: bool, density: str = "all",
+                        color: str | None = None, width: int | None = None):
+        self._call("setRoadsStyle", {"visible": visible, "density": density,
+                                     "color": color, "width": width})
+
     def set_boundary_style(self, visible: bool, color: str | None = None, width: int | None = None):
         self._call("setBoundaryStyle", {"visible": visible, "color": color, "width": width})
+
+    def set_state_boundary_style(self, visible: bool, color: str | None = None,
+                                  width: int | None = None):
+        self._call("setStateBoundaryStyle", {"visible": visible, "color": color, "width": width})
+
+    def set_province_boundary_style(self, visible: bool, color: str | None = None,
+                                     width: int | None = None):
+        self._call("setProvinceBoundaryStyle", {"visible": visible, "color": color, "width": width})
+
+    def set_smoothing_enabled(self, enabled: bool):
+        self._call("setSmoothingEnabled", enabled)
+
+    def set_render_resolution(self, ratio: float):
+        self._call("setRenderResolution", ratio)
+
+    def set_poi_layer(self, pois: list, styles: dict):
+        self._call("setPOILayer", {"pois": pois, "styles": styles})
+
+    def update_poi_type_style(self, poi_type: str, color: str, size: int):
+        self._call("updatePOITypeStyle", {"type": poi_type, "color": color, "size": size})
+
+    def set_pois_visible(self, visible: bool):
+        self._call("setPOIsVisible", visible)
+
+    def clear_pois(self):
+        self._call("clearPOIs")
 
     def set_tile_filter(self, brightness: float, saturation: float, opacity: float):
         self._call("setTileFilter", {

@@ -57,11 +57,44 @@ def init_db() -> None:
                 value TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS map_presets (
+                id            INTEGER PRIMARY KEY,
+                name          TEXT    UNIQUE NOT NULL,
+                settings_json TEXT    NOT NULL,
+                created_at    TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS poi_layers (
+                id              INTEGER PRIMARY KEY,
+                name            TEXT,
+                lat             REAL    NOT NULL,
+                lon             REAL    NOT NULL,
+                type            TEXT,
+                notes           TEXT,
+                source_file     TEXT,
+                colour_override TEXT,
+                size_override   INTEGER,
+                imported_at     TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS poi_type_styles (
+                type   TEXT    PRIMARY KEY,
+                color  TEXT    DEFAULT '#FF6B6B',
+                size   INTEGER DEFAULT 8
+            );
+
             CREATE INDEX IF NOT EXISTS idx_routes_date         ON routes(date);
             CREATE INDEX IF NOT EXISTS idx_routes_country      ON routes(country);
             CREATE INDEX IF NOT EXISTS idx_routes_route_type   ON routes(route_type);
             CREATE INDEX IF NOT EXISTS idx_routes_trip_segment ON routes(trip_segment);
+            CREATE INDEX IF NOT EXISTS idx_poi_type            ON poi_layers(type);
+            CREATE INDEX IF NOT EXISTS idx_poi_source          ON poi_layers(source_file);
         """)
+        # Migrate existing routes table — add weight_override if it doesn't exist yet
+        try:
+            conn.execute("ALTER TABLE routes ADD COLUMN weight_override INTEGER")
+        except Exception:
+            pass  # column already exists
         _seed_defaults(conn)
 
 
@@ -141,7 +174,7 @@ def set_app_config(key: str, value: str) -> None:
 _ROUTE_COLS = [
     "file_path", "display_name", "date", "day_number", "trip_segment",
     "country", "region", "route_type", "notes", "distance_km",
-    "colour_override", "geometry_cache", "is_waypoint", "exported_path",
+    "colour_override", "weight_override", "geometry_cache", "is_waypoint", "exported_path",
 ]
 
 
@@ -228,6 +261,121 @@ def query_routes(filters: dict) -> list[dict]:
         return [dict(r) for r in conn.execute(
             f"SELECT * FROM routes {where_sql} {_ORDER}", params
         ).fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Map presets CRUD
+# ---------------------------------------------------------------------------
+
+def list_presets() -> list[dict]:
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT id, name, created_at FROM map_presets ORDER BY name"
+        ).fetchall()]
+
+
+def save_preset(name: str, settings: dict) -> None:
+    """Insert or replace a preset by name."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO map_presets (name, settings_json) VALUES (?, ?)"
+            " ON CONFLICT(name) DO UPDATE SET settings_json=excluded.settings_json,"
+            " created_at=datetime('now')",
+            (name, json.dumps(settings)),
+        )
+
+
+def load_preset(name: str) -> Optional[dict]:
+    """Return the settings dict for a saved preset, or None if not found."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT settings_json FROM map_presets WHERE name = ?", (name,)
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
+def delete_preset(name: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM map_presets WHERE name = ?", (name,))
+
+
+# ---------------------------------------------------------------------------
+# POI CRUD
+# ---------------------------------------------------------------------------
+
+_POI_COLS = ["name", "lat", "lon", "type", "notes", "source_file", "colour_override", "size_override"]
+
+
+def upsert_pois(rows: list[dict]) -> int:
+    """Bulk insert POIs. Returns count inserted."""
+    if not rows:
+        return 0
+    col_names = ", ".join(_POI_COLS)
+    placeholders = ", ".join(f":{c}" for c in _POI_COLS)
+    sql = f"INSERT INTO poi_layers ({col_names}) VALUES ({placeholders})"
+    with _connect() as conn:
+        conn.executemany(sql, [{c: r.get(c) for c in _POI_COLS} for r in rows])
+    return len(rows)
+
+
+def get_all_pois() -> list[dict]:
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM poi_layers ORDER BY type, name"
+        ).fetchall()]
+
+
+def delete_pois_by_source(source_file: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM poi_layers WHERE source_file = ?", (source_file,))
+
+
+def delete_all_pois() -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM poi_layers")
+
+
+def get_poi_types() -> list[str]:
+    with _connect() as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT type FROM poi_layers WHERE type IS NOT NULL ORDER BY type"
+        ).fetchall()]
+
+
+def get_poi_type_styles() -> dict:
+    """Return {type: {color, size}} including defaults for types not yet in the style table."""
+    with _connect() as conn:
+        rows = conn.execute("SELECT type, color, size FROM poi_type_styles").fetchall()
+    return {r[0]: {"color": r[1], "size": r[2]} for r in rows}
+
+
+def set_poi_type_style(poi_type: str, color: str, size: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO poi_type_styles (type, color, size) VALUES (?, ?, ?)"
+            " ON CONFLICT(type) DO UPDATE SET color=excluded.color, size=excluded.size",
+            (poi_type, color, size),
+        )
+
+
+def ensure_poi_type_style(poi_type: str) -> dict:
+    """Return style for type, inserting defaults if needed."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT color, size FROM poi_type_styles WHERE type = ?", (poi_type,)
+        ).fetchone()
+        if row:
+            return {"color": row[0], "size": row[1]}
+        # Insert default
+        conn.execute(
+            "INSERT OR IGNORE INTO poi_type_styles (type) VALUES (?)", (poi_type,)
+        )
+    return {"color": "#FF6B6B", "size": 8}
 
 
 def _build_where(filters: dict) -> tuple[list[str], list[Any]]:

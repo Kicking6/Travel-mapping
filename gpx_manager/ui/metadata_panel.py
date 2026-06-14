@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QComboBox, QSpinBox,
+    QLabel, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
     QPushButton, QFrame, QTextEdit, QSizePolicy, QScrollArea,
 )
 
@@ -208,6 +208,17 @@ class MetadataPanel(QWidget):
         colour_col.addWidget(colour_widget)
         type_colour_row.addLayout(colour_col, 2)
 
+        # Feature 1: per-route weight spinbox (0 = use global default)
+        self._weight_spin = QSpinBox()
+        self._weight_spin.setRange(0, 10)
+        self._weight_spin.setSpecialValueText("—")   # 0 means "use global"
+        self._weight_spin.setToolTip("Line weight override (0/— = use global setting)")
+        weight_col = QVBoxLayout()
+        weight_col.setSpacing(2)
+        weight_col.addWidget(_label("Weight"))
+        weight_col.addWidget(self._weight_spin)
+        type_colour_row.addLayout(weight_col, 1)
+
         outer.addLayout(type_colour_row)
 
         # ---- LOCATION section ----
@@ -322,6 +333,8 @@ class MetadataPanel(QWidget):
         rt = r.get("route_type") or ""
         if self._color_btn:
             self._color_btn.set_color(r.get("colour_override") or TYPE_COLOURS.get(rt, "#999"))
+        # Feature 1: per-route weight (0 = global default, shown as "—")
+        self._weight_spin.setValue(int(r.get("weight_override") or 0))
 
     def _clear_fields(self):
         self._name_edit.clear()
@@ -334,6 +347,7 @@ class MetadataPanel(QWidget):
         self._notes_edit.clear()
         if self._color_btn:
             self._color_btn.set_color("#999")
+        self._weight_spin.setValue(0)
 
     def _set_empty(self):
         self._header_lbl.setText("No selection")
@@ -346,6 +360,7 @@ class MetadataPanel(QWidget):
         if self._color_btn:
             self._color_btn.setEnabled(on)
             self._color_reset.setEnabled(on)
+        self._weight_spin.setEnabled(on)
         self._save_btn.setEnabled(on)
 
     @staticmethod
@@ -411,6 +426,9 @@ class MetadataPanel(QWidget):
             fields[key] = self._read_widget(cell.field)
         if self._color_btn:
             fields["colour_override"] = self._color_btn.color()
+        # Feature 1: per-route weight (0 = use global, stored as None)
+        w = self._weight_spin.value()
+        fields["weight_override"] = w if w > 0 else None
         return fields
 
     # ------------------------------------------------------------------

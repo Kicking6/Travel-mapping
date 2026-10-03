@@ -50,6 +50,12 @@ async function handleAuth(request, env, url) {
     const email = normaliseEmail(f.email);
     if (!email) return signInPage({ error: 'Enter a valid email address.', email: f.email });
     if (!(await mayUse(env, email))) return notListedPage(email);
+    // No mail sender configured (and not local dev): don't mint a code that
+    // can't be delivered — and don't cancel one an admin made with
+    // `npm run login-code`. Go straight to the code screen.
+    if (!(env.GMAIL_SMTP_USER && env.GMAIL_SMTP_APP_PASSWORD) && env.DEV_SHOW_CODE !== '1') {
+      return codePage({ email, error: "Email sign-in isn't switched on yet. Ask Rory for a code (he makes one with “npm run login-code”), then type it here." });
+    }
     const code = await createLoginCode(env, email);
     try {
       const r = await sendCode(env, email, code);

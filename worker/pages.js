@@ -37,7 +37,7 @@ ${error ? `<div class="err">${esc(error)}</div>` : ''}
 }
 
 export function codePage({ email, error, devCode }) {
-  return shell('Enter your code', `<h1>Check your email</h1><p>We sent a 6-digit code to</p><div class="who">${esc(email)}</div>
+  return shell('Enter your code', `<h1>${error && /switched on/.test(error) ? 'Enter your code' : 'Check your email'}</h1><p>${error && /switched on/.test(error) ? 'Signing in as' : 'We sent a 6-digit code to'}</p><div class="who">${esc(email)}</div>
 ${devCode ? `<div class="dev" style="margin-top:12px">Local dev — no email sent. Your code is <strong>${esc(devCode)}</strong>.</div>` : ''}
 ${error ? `<div class="err" style="margin-top:12px">${esc(error)}</div>` : ''}
 <form method="post" action="/auth/verify"><input type="hidden" name="email" value="${esc(email)}">

@@ -88,7 +88,11 @@ export async function handle(request, env, url, user) {
     if (!env.ORIGINALS) return err('File storage is not configured', 501);
     const obj = await env.ORIGINALS.get(`raw/${raw[1]}`);
     if (!obj) return err('Original not kept for this route', 404);
-    const name = (obj.customMetadata && obj.customMetadata.name) || 'route.gpx';
+    let name = obj.customMetadata && obj.customMetadata.name;
+    if (!name) { // uploaded without metadata (bulk upload): the route remembers its file name
+      const r = await env.DB.prepare('SELECT source_name FROM routes WHERE source_hash = ? LIMIT 1').bind(raw[1]).first();
+      name = (r && r.source_name) || 'route.gpx';
+    }
     return new Response(obj.body, { headers: { 'Content-Type': 'application/gpx+xml', 'Content-Disposition': `attachment; filename="${name.replace(/["\\]/g, '')}"` } });
   }
 

@@ -15,12 +15,17 @@ const CODE_MAX_ATTEMPTS = 5;
 const CACHE_TTL_MS = 30 * 1000;
 
 export function operatorEmails(env) {
-  return String(env.OPERATOR_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return String(env.OPERATOR_EMAILS || '').split(',').map((s) => normaliseEmail(s)).filter(Boolean);
 }
 
+// Gmail ignores dots and "+tags" in the local part, so rorywade.allen@ and
+// rorywadeallen@ are one inbox — and must be one person here.
 export function normaliseEmail(e) {
-  const s = String(e || '').trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254 ? s : null;
+  let s = String(e || '').trim().toLowerCase();
+  if (!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254)) return null;
+  const [local, domain] = s.split('@');
+  if (domain === 'gmail.com' || domain === 'googlemail.com') s = `${local.split('+')[0].replace(/\./g, '')}@gmail.com`;
+  return s;
 }
 
 function randomToken() {

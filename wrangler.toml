@@ -3,6 +3,7 @@ main = "worker/index.js"
 compatibility_date = "2026-06-01"
 workers_dev = true
 preview_urls = false
+account_id = "f10b4619768b1110ad7f98eabde211d4"
 
 # Every request goes through the Worker first so web/ is only served to people
 # who are signed in (worker/index.js); /lib/* is shared code, also gated.
@@ -14,7 +15,7 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "trip-atlas"
-database_id = "00000000-0000-0000-0000-000000000000"   # replace with the id from `wrangler d1 create trip-atlas`
+database_id = "096324cc-6275-448b-9ff1-f6ac631a9691"
 migrations_dir = "migrations"
 
 # The original GPX files, kept so nothing is lost when geometry is simplified.

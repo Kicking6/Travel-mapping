@@ -8,8 +8,11 @@
     "test": "node --test",
     "dev": "npx -y wrangler@4.142.0 dev --port 8788",
     "db:local": "npx -y wrangler@4.142.0 d1 migrations apply trip-atlas --local",
-    "deploy": "npx -y wrangler@4.142.0 d1 migrations apply trip-atlas --remote && npx -y wrangler@4.142.0 deploy"
+    "deploy": "npx -y wrangler@4.142.0 d1 migrations apply trip-atlas --remote && npx -y wrangler@4.142.0 deploy",
+    "login-code": "node scripts/login-code.mjs"
   },
   "license": "UNLICENSED",
-  "engines": { "node": ">=22.5.0" }
+  "engines": {
+    "node": ">=22.5.0"
+  }
 }

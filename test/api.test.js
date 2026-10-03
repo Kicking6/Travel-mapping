@@ -182,3 +182,25 @@ test('duplicate verdicts on real ratios', async () => {
   assert.equal(duplicateVerdict({ fingerprint: 'a>b~21', point_count: 12000, geom: 'y' }, t), 'lookalike');
   assert.equal(duplicateVerdict({ fingerprint: 'a>b~6', point_count: 9000, geom: 'y' }, t), null);            // another walk from the same house
 });
+
+test('Gmail addresses match however the dots are typed', async () => {
+  const { normaliseEmail } = await import('../worker/auth.js');
+  assert.equal(normaliseEmail('RoryWade.Allen@gmail.com'), 'rorywadeallen@gmail.com');
+  assert.equal(normaliseEmail('evarblok+album@googlemail.com'), 'evarblok@gmail.com');
+  assert.equal(normaliseEmail('first.last@example.com'), 'first.last@example.com');
+  const e = makeEnv({ OPERATOR_EMAILS: 'rorywade.allen@gmail.com' });
+  const api = await signedIn(worker, e, 'rorywadeallen@gmail.com');
+  assert.equal((await api('GET', '/api/bootstrap')).body.me.isAdmin, true);
+});
+
+test('without a mail sender, asking for a code keeps an admin-made code alive', async () => {
+  const e = makeEnv({ DEV_SHOW_CODE: undefined });
+  const { sha256Hex } = await import('../worker/auth.js');
+  e.DB.raw.exec(`INSERT INTO login_codes (email, code_hash, expires_at) VALUES ('rory@x.nz', '${await sha256Hex('rory@x.nz:123456')}', datetime('now', '+15 minutes'))`);
+  const post = (p, b) => worker.fetch(new Request('https://atlas.test' + p, { method: 'POST', body: new URLSearchParams(b) }), e);
+  const page = await (await post('/auth/code', { email: 'rory@x.nz' })).text();
+  assert.match(page, /switched on yet/);
+  const res = await post('/auth/verify', { email: 'rory@x.nz', code: '123456' });
+  assert.equal(res.status, 303);
+  assert.match(res.headers.get('Set-Cookie'), /ta_session=/);
+});

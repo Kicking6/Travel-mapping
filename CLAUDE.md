@@ -158,13 +158,21 @@ node scripts/import.mjs --email dev@trip-atlas.test --keep-originals <folders…
 `.dev.vars` (gitignored): `DEV_SHOW_CODE=1` shows the sign-in code on the page instead of emailing it;
 `OPERATOR_EMAILS=dev@trip-atlas.test` keeps real addresses out of local testing.
 
-## Deploy (not yet done — needs Rory)
+## Deploy (live since 2026-10-04)
 
-1. `npx wrangler d1 create trip-atlas` → put the id in `wrangler.toml`; `npx wrangler r2 bucket create trip-atlas-originals`.
-2. `wrangler secret put GMAIL_SMTP_USER` / `GMAIL_SMTP_APP_PASSWORD` (same sender pattern as Site Scout).
-3. `npm run deploy`, then sign in as an `OPERATOR_EMAILS` address and add Eva in Trip & people.
-4. Optional auto-deploy: `.github/workflows/deploy.yml` (pushes to `main`), needs the
-   `CLOUDFLARE_API_TOKEN` Actions secret scoped to this project only, like Site Scout's.
+- **https://trip-atlas.rorywadeallen.workers.dev** — Worker `trip-atlas`, D1 `trip-atlas`
+  (096324cc-…), R2 `trip-atlas-originals`, account f10b4619… (same as Site Scout).
+- Deploy: `npm run deploy` (migrations + deploy, uses the local `wrangler login`). Run `node --test`
+  first and don't pipe it through grep — a filtered failure doesn't stop the chain.
+- Users: Rory (rorywadeallen@gmail.com) and Eva (evarblok@gmail.com), both admins, both in
+  OPERATOR_EMAILS. Gmail addresses are normalised (dots and +tags ignored).
+- **Email codes need** `wrangler secret put GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` (a Gmail
+  App Password, set by Rory — never by Claude). Until then the sign-in button goes straight to the code
+  screen and `npm run login-code -- <email>` (run by Rory in his terminal) mints a 15-minute code.
+- The live data was seeded from the local dev DB (routes, styles, album maps) on 2026-10-04; originals
+  were uploaded to R2 under raw/<sha256> with `wrangler r2 object put`.
+- Auto-deploy (`.github/workflows/deploy.yml`, pushes to `main`) needs a project-scoped
+  `CLOUDFLARE_API_TOKEN` Actions secret, like Site Scout's. Not set up; the branch isn't merged.
 
 ## Status (2026-10-04, second pass)
 

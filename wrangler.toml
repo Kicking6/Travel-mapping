@@ -27,7 +27,7 @@ enabled = true
 
 [vars]
 # Comma-separated. These people can always sign in and are admins (Settings → People).
-OPERATOR_EMAILS = "rorywade.allen@gmail.com"
+OPERATOR_EMAILS = "rorywade.allen@gmail.com,evarblok@gmail.com"
 
 # Secrets (wrangler secret put):
 #   GMAIL_SMTP_USER / GMAIL_SMTP_APP_PASSWORD — the Gmail account and App Password

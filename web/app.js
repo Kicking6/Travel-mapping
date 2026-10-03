@@ -143,19 +143,22 @@ const VIEWS = {
   album: () => import('./views/album.js'),
   import: () => import('./views/import.js'),
   review: () => import('./views/review.js'),
+  draw: () => import('./views/draw.js'),
+  photos: () => import('./views/photos.js'),
+  film: () => import('./views/film.js'),
   styles: () => import('./views/styles.js'),
   settings: () => import('./views/settings.js'),
 };
 
 let cleanup = null;
 async function route() {
-  const [name = 'map', ...params] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const [name = 'map', ...params] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   const load = VIEWS[name] || VIEWS.map;
   for (const a of $$('#nav a')) a.classList.toggle('active', a.dataset.nav === name);
   if (cleanup) { try { cleanup(); } catch (_) { /* view already gone */ } cleanup = null; }
   const el = $('#view');
   el.innerHTML = '<div class="page"><div class="empty"><span class="spinner"></span></div></div>';
-  document.body.classList.toggle('app-full', ['map', 'album', 'styles', 'review'].includes(name) && !(name === 'album' && !params.length));
+  document.body.classList.toggle('app-full', ['map', 'album', 'styles', 'review', 'draw', 'film'].includes(name) && !(name === 'album' && !params.length));
   try {
     const mod = await load();
     el.innerHTML = '';

@@ -19,18 +19,42 @@ function filterSpec(x) {
     from: v.date(f.from), to: v.date(f.to),
     types: Array.isArray(f.types) ? f.types.filter((t) => TYPE_IDS.includes(t)) : [],
     legs: ids(f.legs),
-    countries: Array.isArray(f.countries) ? f.countries.filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 60) : [],
+    // Country names as stored on routes (Natural Earth names, e.g. "United States of America").
+    countries: Array.isArray(f.countries) ? f.countries.filter((c) => typeof c === 'string' && c.length <= 60).slice(0, 80) : [],
     include: ids(f.include), exclude: ids(f.exclude),
     places: f.places !== false,
   });
 }
 
+// bounds frame a flat page; camera (centre/zoom/bearing/pitch) carries a
+// tilted, rotated or globe page exactly as composed.
 function viewSpec(x) {
   if (x == null) return null;
   const b = x.bounds;
   if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite) || b[1] < -90 || b[3] > 90 || b[1] >= b[3])
     throw new HttpError(400, 'View needs bounds [w,s,e,n]');
-  return JSON.stringify({ bounds: b.map((n) => Math.round(n * 1e6) / 1e6), bearing: Number.isFinite(x.bearing) ? x.bearing : 0 });
+  const out = { bounds: b.map((n) => Math.round(n * 1e6) / 1e6), bearing: Number.isFinite(x.bearing) ? x.bearing : 0 };
+  const c = x.camera;
+  if (c) {
+    if (!Array.isArray(c.center) || c.center.length !== 2 || !c.center.every(Number.isFinite) || !Number.isFinite(c.zoom)) throw new HttpError(400, 'Bad camera');
+    out.camera = { center: c.center, zoom: c.zoom, bearing: Number.isFinite(c.bearing) ? c.bearing : 0, pitch: Math.max(0, Math.min(75, Number(c.pitch) || 0)), frameW: Number.isFinite(c.frameW) ? c.frameW : null };
+  }
+  return JSON.stringify(out);
+}
+
+// Per-page tweaks: { composition, subtitle, style: {partial spec} }.
+function overridesSpec(x) {
+  const o = x && typeof x === 'object' ? x : {};
+  const out = {};
+  if (o.composition != null) out.composition = v.int(300, 4000)(Math.round(o.composition));
+  if (o.subtitle != null) out.subtitle = v.text(200)(o.subtitle);
+  if (o.style && typeof o.style === 'object') {
+    const e = validateStyle(resolveStyle({}, o.style));
+    if (e) throw new HttpError(400, e);
+    out.style = o.style;
+  }
+  if (o.export && typeof o.export === 'object') out.export = o.export; // last-used export options, for convenience
+  return v.json(40000)(out);
 }
 
 // Paper in mm at a dpi. Pixel size is capped where browsers' WebGL can still
@@ -46,7 +70,7 @@ const STYLE = { name: v.name, spec: styleSpec };
 const MAP = {
   name: v.name, filter: filterSpec, view: viewSpec, paper: paperSpec,
   style_id: (x) => (x == null ? null : v.int(1, 1e9)(x)),
-  overrides: (x) => v.json(20000)(x || {}),
+  overrides: overridesSpec,
   title: v.text(200), notes: v.text(4000), sort_order: v.int(0, 1e6),
 };
 

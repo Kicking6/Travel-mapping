@@ -12,7 +12,18 @@ as sharp, full-resolution maps for the photo album.
   are caught automatically. Add flights by airport code. Places (accommodation) from a CSV.
 - **Review** — what needs a person: no date (with a suggested one), guessed years, possible
   duplicates, unknown transport type, no country.
-- **Map styles** — land, water, labels, borders, roads, and a colour/width per transport type.
+- **Map styles** — land, water, labels, borders, roads, and a colour/width/pattern per transport type;
+  plus an **Advanced** menu: globe, terrain shading, 3D terrain, land cover, countries-we-visited fills,
+  typography, route glow / gradients / arrows, paper grain and vignette, title, legend, scale bar,
+  north arrow — and eight designer presets.
+- **Export** — PNG, JPEG, WebP, print-ready PDF (bleed, crop marks, vector routes), SVG for
+  Illustrator, or a ZIP of separate transparent layers; any paper size, 72–600 dpi; route data as
+  GPX / GeoJSON / KML.
+- **Draw** — add a route by clicking: it follows roads, paths or cycle routes, or straight lines.
+- **Photos** — drop photos and they're placed on the map by GPS, by time along the route you were
+  on, or by date.
+- **Film** — the trip as a video: the routes draw themselves in order, the camera flies between
+  places, photos pop up; MP4 up to 4K/60, 16:9, square, 4:5 or vertical.
 
 Built like Site Scout and akahu-ledger: a Cloudflare Worker with D1 and R2, plain JavaScript, no build
 step. Sign-in is a 6-digit code by email. See [CLAUDE.md](CLAUDE.md) for how it works and how to run it.

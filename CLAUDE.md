@@ -26,7 +26,12 @@ Feed this file at the start of every session. It describes current state; keep i
   - `web/lib/` — **shared code**, imported by the browser, the Worker and the tests:
     `types.js` (transport-type registry), `names.js` (file name → date/type/name), `gpx.js` (GPX/CSV →
     route records), `geo.js` (simplify, polyline, fingerprint, great circle), `style.js` (map style
-    spec, defaults, validation), `countries.js` (Natural Earth country lookup, browser/Node only).
+    spec, defaults, presets, validation), `countries.js` (Natural Earth country lookup),
+    `outputs.js` (PNG/JPEG dpi, PDF, SVG, ZIP, GPX/GeoJSON/KML writers), `photos.js` (photo
+    placement), `film.js` (the trip film's timeline and camera).
+  - Views: `explore` (#/map), `album` (+ `export-dialog`), `styles` (+ `style-controls`, the
+    declarative control list shared with an album page's "Look" tab), `draw`, `photos`, `film`,
+    `import`, `review`, `settings`, `route-editor`.
   - `web/data/airports.json` — IATA → coords, from the old generator's GlobalAirportDatabase
     (`scripts/build-airports.mjs`, plus EZE which it lacked).
 - `migrations/` — D1 schema, numbered. Always add a new migration; never edit an applied one.
@@ -47,8 +52,12 @@ One shared trip per deployment — no per-user tenancy on trip data; `users` onl
 - `date` + `date_source`: `gps-time` > `filename` > `trip-day` (`trip_start` + N − 1) > `suggested`
   (a guessed year — must be confirmed) > `manual`. Changing `trip_start` re-dates only `trip-day` rows.
 - `legs` (named date ranges), `places` (accommodation points, styled by `kind`), `map_styles`
-  (JSON spec, shape owned by `web/lib/style.js`), `album_maps` (one printed page: filter, view bounds,
-  paper mm + dpi, style, overrides incl. `composition`).
+  (JSON spec, shape owned by `web/lib/style.js`), `album_maps` (one printed page: filter, view
+  {bounds, camera{center,zoom,bearing,pitch,frameW}}, paper mm + dpi + bleed, style, overrides
+  {composition, subtitle, style (per-page partial spec), export (last-used options)}).
+- `photos` (0002): one row per original file's sha256; R2 `photos/<sha>-{full,thumb}.jpg`
+  (2048 px / 480 px JPEGs made in the browser — originals never upload). `place_source`:
+  gps | route-time | route-date | manual | NULL.
 
 ## Import rules (worker/api/routes.js `duplicateVerdict`)
 
@@ -87,6 +96,20 @@ thinned them (100 m / 10 m) into WKT CSVs for Google My Maps. So:
   three OpenFreeMap styles (positron/bright/liberty) work with every style knob. Boundaries split by
   the lowest `admin_level` in their filter.
 
+## Map styles
+
+`style.js` owns the spec. A saved style stores only what it has; `resolveStyle()` lays it over
+`defaultStyle()`, so a new knob never needs a migration. **Basic** controls (base map, labels, base
+lines, per-type route colour/width/dash, places) and **Advanced** (globe projection + atmosphere,
+terrain hill-shading from Terrarium DEM tiles + 3D terrain, land-cover classes, coastline/rivers,
+visited-country fills + fade-others, typography — fonts, size scale, case, letter-spacing, per-tier
+colours —, route glow / gradient (by trip date or along each line) / arrows / end dots / caps,
+print finishing — grain, vignette, colour wash, border —, page furniture — title font/size/position,
+subtitle, legend, scale bar, north arrow, panel). Eight presets (`PRESETS`). Controls are declared
+once in `views/style-controls.js` and rendered for both the Styles page and an album page's Look tab.
+Label sizes are scaled by rewriting zoom-curve stops (`map/scale-size.js`) — MapLibre rejects a zoom
+curve wrapped in `*`.
+
 ## Print export (web/map/render.js)
 
 The legacy exporter screenshotted the window and upscaled it to 10,000 px. Now: an offscreen map laid
@@ -95,12 +118,40 @@ out at `composition` CSS px (default 900; the "Map detail" slider) and drawn at
 Preview uses the same function at screen size — preview = print. Verified: 30 cm @ 300 dpi →
 3543 × 3543 px in ~4 s. The card's WebGL limit (`maxRenderSize()`) is checked and explained up front.
 
+Pipeline: `renderMap` (mode all | base | overlay) → finish → decor → encode. Formats: PNG (pHYs dpi),
+JPEG (JFIF dpi), WebP, **PDF** (exact mm size, Trim/BleedBox, bleed + crop marks, routes as vector
+paths when no glow/gradient, JPEG or lossless-Flate base), **SVG** (vector routes/places in mm, base
+map embedded optional — opens in Illustrator), **Layers ZIP** (base, routes, decor as separate
+transparent PNGs + composite). Tilted/rotated/globe pages export from the saved camera; its zoom is
+rescaled by log₂(layout width / frame width). Route data: GPX / GeoJSON / KML per album page.
+
+## Drawing, photos, film
+
+- **Draw** (#/draw): click waypoints; OSRM on routing.openstreetmap.de (car / foot / bike, fair use)
+  or straight lines; saved as `source_kind = manual`.
+- **Photos** (#/photos): exifr reads GPS + DateTimeOriginal — never pass exifr a `pick` list, it
+  drops GPSLatitudeRef and flips every southern/western photo (verified: Peru → Bay of Bengal).
+  Camera times without a zone are local; they're compared with route UTC times using the route's
+  longitude, never the browser's zone.
+- **Film** (#/film): `lib/film.js` builds the timeline (beats per day/week/leg, √km pacing, glides
+  that pull back on long jumps, photo holds, title/end cards). Preview plays it live; Render encodes
+  H.264 via WebCodecs + mp4-muxer frame by frame, waiting for tiles with `map.redraw()` polling
+  (works even when animation frames are throttled). 4K = 1080p layout at pixelRatio 2. Big renders
+  stream to disk via showSaveFilePicker.
+
+## Speed rules
+
+- Filtering never calls `setData`: `atlas.setVisible(ids)` swaps a layer filter (no re-tiling).
+- The whole trip's geometry is one ETag'd response; app files are served `Cache-Control: no-cache`
+  (cheap 304s) so a deploy can't leave a stale module mixed with new ones.
+- Browsers pause maps in hidden tabs/panes — rendering and exports need the tab in front.
+
 ## Local development
 
 ```
 npm run db:local                      # apply migrations to the local D1
 npm run dev                           # wrangler dev on :8788
-node --test                           # 45 tests, no network
+node --test                           # 68 tests, no network
 node scripts/import.mjs --email dev@trip-atlas.test --keep-originals <folders…>
 ```
 
@@ -115,7 +166,14 @@ node scripts/import.mjs --email dev@trip-atlas.test --keep-originals <folders…
 4. Optional auto-deploy: `.github/workflows/deploy.yml` (pushes to `main`), needs the
    `CLOUDFLARE_API_TOKEN` Actions secret scoped to this project only, like Site Scout's.
 
-## Status (2026-10-04)
+## Status (2026-10-04, second pass)
+
+Added: advanced styling + presets, export formats, drawing, photos, trip film, MapLibre 5.24.
+Eva (evarblok@gmail.com) is an operator. Not yet visually verified in a browser: globe/terrain/
+visited/typography rendering, PDF/SVG/ZIP exports on real data, the film render, drawing — the
+logic is unit-tested; the browser pane was hidden during that session.
+
+## Status (2026-10-04, first pass)
 
 Rebuilt end-to-end and verified locally against the real data: 446 routes (443 GPX/CSV after
 de-duplication of 1,189 inputs, + 3 flights), 67 queued for Review. Not yet: deployment, Eva's

@@ -39,6 +39,7 @@ export function r2() {
     async head(k) { return objects.has(k) ? {} : null; },
     async get(k) { const o = objects.get(k); return o ? { body: o.body, customMetadata: o.meta } : null; },
     async put(k, v, opts = {}) { objects.set(k, { body: typeof v === 'string' ? v : await new Response(v).text(), meta: opts.customMetadata || {} }); },
+    async delete(keys) { for (const k of [].concat(keys)) objects.delete(k); },
   };
 }
 

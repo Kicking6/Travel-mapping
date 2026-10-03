@@ -40,6 +40,8 @@ export async function render(el) {
       <div class="map-float tl" style="padding:6px 8px;display:flex;gap:6px;align-items:center">
         <select class="select sm" id="styleSel" title="Map style" style="width:auto"></select>
         <button class="btn sm" id="fitAll" title="Zoom to the filtered routes">Fit</button>
+        <a class="btn sm" href="#/draw" title="Add a route by clicking on the map">＋ Draw a route</a>
+        <label class="switch" style="font-size:var(--fs-sm);margin-left:4px" title="Photo pins"><input type="checkbox" id="showPhotos"><span class="track"></span>Photos</label>
       </div>
       <div class="map-float bl map-legend-float" id="legend"></div>
     </section>
@@ -108,15 +110,24 @@ export async function render(el) {
     $('#count', el).textContent = `${visible.length} route${visible.length === 1 ? '' : 's'} · ${fmtKm(km)} km`;
   }
 
+  // Data goes to the map only when the routes themselves change; filtering
+  // just swaps the visible-id filter (no re-tiling, so it's instant).
+  let loadedVersion = null;
   function refresh({ fit = false } = {}) {
+    const t0 = performance.now();
     computeVisible();
     renderTable();
     renderLegend();
-    atlas.setRoutes(visible);
-    atlas.setPlaces(store.places);
+    if (loadedVersion !== store.version) {
+      atlas.setRoutes(store.routes);
+      atlas.setPlaces(store.places);
+      loadedVersion = store.version;
+    }
+    atlas.setVisible(visible.map((r) => r.id));
     for (const id of [...selected]) if (!store.route(id)) selected.delete(id);
     atlas.setSelection([...selected]);
     if (fit) fitVisible();
+    window.__taRefreshMs = performance.now() - t0; // read by the speed check in CLAUDE.md
   }
   function fitVisible(list = visible) { atlas.fit(unionBbox(list.map((r) => r.bbox))); }
 
@@ -182,6 +193,18 @@ export async function render(el) {
   $('#showHidden', el).onchange = (e) => { prefs.showHidden = e.target.checked; onFilter(false); };
   $('#fitAll', el).onclick = () => fitVisible();
   $('#selAll', el).onclick = () => { visible.forEach((r) => selected.add(r.id)); atlas.setSelection([...selected]); renderTable(); renderDrawer(); };
+  // Photo pins (clustered); click one for the lightbox.
+  const photoToggle = $('#showPhotos', el);
+  photoToggle.checked = /photos=1/.test(location.hash) || prefs.photos === true;
+  async function syncPhotos() {
+    prefs.photos = photoToggle.checked; savePrefs(prefs);
+    if (!photoToggle.checked) { atlas.setPhotos([], false); return; }
+    const { loadPhotos } = await import('./photos.js');
+    atlas.setPhotos((await loadPhotos()).filter((p) => !p.hidden), true);
+  }
+  photoToggle.onchange = syncPhotos;
+  atlas.on('photo', async (id) => { const { openPhoto } = await import('./photos.js'); openPhoto(id, syncPhotos); });
+  syncPhotos();
   styleSel.onchange = async () => {
     prefs.styleId = +styleSel.value; savePrefs(prefs);
     await atlas.setSpec(resolveStyle(store.style(+styleSel.value).spec));

@@ -1,11 +1,11 @@
 // #/styles[/id] — map style editor with a live preview of the whole trip.
-import { store, api, loadBootstrap, esc, $, toast, confirm, debounce } from '../app.js';
+import { store, api, loadBootstrap, esc, $, toast, confirm, debounce, modal } from '../app.js';
 import { createAtlas } from '../map/atlas.js';
-import { resolveStyle, BASEMAPS, PLACE_KINDS, defaultStyle } from '../lib/style.js';
-import { TYPES } from '../lib/types.js';
+import { renderPage } from '../map/render.js';
+import { resolveStyle, applyPreset, PLACE_KINDS, PRESETS } from '../lib/style.js';
 import { unionBbox } from '../lib/geo.js';
+import { styleControls } from './style-controls.js';
 
-const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const set = (o, path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), o)[last] = v; };
 
 export async function render(el, params) {
@@ -15,48 +15,23 @@ export async function render(el, params) {
   const row = store.style(id);
   let spec = resolveStyle(row.spec);
   const placeKinds = [...new Set([...PLACE_KINDS.map((k) => k.id), ...Object.keys(spec.places.kinds), ...store.places.map((p) => p.kind)])];
-  for (const k of placeKinds) if (!spec.places.kinds[k]) spec.places.kinds[k] = { color: '#677384', size: 5, show: true };
+  const fillKinds = () => { for (const k of placeKinds) if (!spec.places.kinds[k]) spec.places.kinds[k] = { color: '#677384', size: 5, show: true }; };
+  fillKinds();
+  let advancedOpen = false;
+  try { advancedOpen = localStorage.getItem('ta-adv') === '1'; } catch (_) { /* private mode */ }
 
-  const color = (path, label) => `<label class="style-line"><span>${label}</span><input type="color" data-path="${path}" value="${esc(get(spec, path))}"><span></span></label>`;
-  const toggle = (path, label) => `<label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${path}" ${get(spec, path) ? 'checked' : ''}><span class="track"></span>${label}</label>`;
-  const num = (path, min, max, step) => `<input class="input sm" type="number" data-path="${path}" min="${min}" max="${max}" step="${step}" value="${get(spec, path)}">`;
-  const layer = (key, label, extra = '') => `<div class="style-line"><span>${toggle(`layers.${key}.show`, label)}</span>${spec.layers[key].color !== undefined ? `<input type="color" data-path="layers.${key}.color" value="${esc(spec.layers[key].color)}">` : '<span></span>'}${spec.layers[key].width !== undefined ? num(`layers.${key}.width`, 0.1, 10, 0.1) : '<span></span>'}</div>${extra}`;
-
-  el.innerHTML = `<div class="ws" style="grid-template-columns:var(--panel-w) minmax(0,1fr)">
-    <aside class="ws-panel"><div class="ws-panel-body" style="padding:14px 16px;display:flex;flex-direction:column;gap:14px" id="panel">
-      <div class="filter-row"><select class="select" id="pick">${store.styles.map((s) => `<option value="${s.id}" ${s.id === id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
-        <button class="btn sm" id="dup" title="Copy this style">Copy</button></div>
-      <div class="row-between"><input class="input" id="name" value="${esc(row.name)}" style="font-weight:700"><span class="help" id="saved" style="white-space:nowrap;margin-left:8px"></span></div>
-      <div class="style-group stack"><div class="section-title">Base map</div>
-        <select class="select" data-path="basemap">${BASEMAPS.map((b) => `<option value="${b.id}" ${spec.basemap === b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}</select>
-        ${color('land', 'Land')}${color('water', 'Water')}
-        ${toggle('smooth', 'Smooth line corners')}
+  el.innerHTML = `<div class="ws ws-2">
+    <aside class="ws-panel">
+      <div class="ws-panel-head">
+        <div class="filter-row"><select class="select" id="pick">${store.styles.map((s) => `<option value="${s.id}" ${s.id === id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+          <button class="btn sm" id="dup" title="Copy this style">Copy</button></div>
+        <div class="row-between"><input class="input" id="name" value="${esc(row.name)}" style="font-weight:700"><span class="help" id="saved" style="white-space:nowrap;margin-left:8px"></span></div>
       </div>
-      <div class="style-group stack"><div class="section-title">Labels</div>
-        ${toggle('labels.show', 'Show place names')}
-        <select class="select sm" data-path="labels.density"><option value="countries">Countries only</option><option value="cities">Countries, regions &amp; cities</option><option value="all">Everything</option></select>
-        ${color('labels.color', 'Text')}${color('labels.halo', 'Halo')}
-      </div>
-      <div class="style-group stack"><div class="section-title">Lines on the base map <span class="muted" style="text-transform:none;letter-spacing:0">colour · width</span></div>
-        ${layer('countries', 'Country borders')}${layer('states', 'State / province borders')}
-        ${layer('roads', 'Roads', `<select class="select sm" data-path="layers.roads.density"><option value="major">Major roads only</option><option value="all">All roads</option></select>`)}
-        ${layer('ferries', 'Ferry lines')}${layer('parks', 'Parks')}
-      </div>
-      <div class="style-group stack"><div class="section-title">Our routes <span class="muted" style="text-transform:none;letter-spacing:0">colour · width</span></div>
-        ${TYPES.map((t) => `<div class="style-line"><span>${toggle(`routes.${t.id}.show`, esc(t.label))}</span><input type="color" data-path="routes.${t.id}.color" value="${esc(spec.routes[t.id].color)}">${num(`routes.${t.id}.width`, 0.25, 20, 0.25)}</div>`).join('')}
-        <label class="style-line"><span>Opacity</span><span></span><input class="input sm" type="number" data-path="routeOpacity" min="0.1" max="1" step="0.05" value="${spec.routeOpacity}"></label>
-        <div class="style-line"><span>${toggle('routeCasing.show', 'White edge on routes')}</span><input type="color" data-path="routeCasing.color" value="${esc(spec.routeCasing.color)}">${num('routeCasing.width', 0, 6, 0.25)}</div>
-      </div>
-      <div class="style-group stack"><div class="section-title">Places <span class="muted" style="text-transform:none;letter-spacing:0">colour · size</span></div>
-        ${toggle('places.show', 'Show places')}${toggle('places.labels', 'Label places')}
-        ${placeKinds.map((k) => `<div class="style-line"><span>${toggle(`places.kinds.${k}.show`, esc((PLACE_KINDS.find((x) => x.id === k) || { label: k }).label))}</span><input type="color" data-path="places.kinds.${k}.color" value="${esc(spec.places.kinds[k].color)}">${num(`places.kinds.${k}.size`, 1, 20, 0.5)}</div>`).join('')}
-      </div>
-      <div class="row-between"><button class="btn sm" id="reset">Reset to defaults</button><button class="btn danger sm" id="del">Delete style</button></div>
-    </div></aside>
+      <div class="ws-panel-body" style="padding:6px 16px 16px" id="controls"></div>
+      <div class="ws-panel-foot"><button class="btn sm" id="preview">Print preview</button><span style="margin-left:auto"></span><button class="btn danger sm ghost" id="del">Delete</button></div>
+    </aside>
     <section class="ws-map"><div class="map" id="map"></div></section></div>`;
 
-  const panel = $('#panel', el);
-  for (const s of panel.querySelectorAll('select[data-path]')) s.value = get(spec, s.dataset.path);
   const atlas = await createAtlas($('#map', el), { spec });
   const visible = store.routes.filter((r) => !r.hidden);
   atlas.setRoutes(visible);
@@ -66,38 +41,53 @@ export async function render(el, params) {
   const save = debounce(async () => {
     $('#saved', el).textContent = 'Saving…';
     try {
-      await api('PUT', `/api/styles/${id}`, { name: $('#name', el).value.trim() || row.name, spec });
-      row.spec = spec; row.name = $('#name', el).value.trim() || row.name;
+      const name = $('#name', el).value.trim() || row.name;
+      await api('PUT', `/api/styles/${id}`, { name, spec });
+      row.spec = structuredClone(spec); row.name = name;
       $('#saved', el).textContent = 'Saved';
     } catch (e) { $('#saved', el).textContent = ''; toast(e.message, 'err'); }
   }, 600);
-  const repaint = debounce(() => atlas.setSpec(structuredClone(spec)), 60);
+  // Repaints coalesce to one per frame, so dragging a slider stays smooth.
+  let pending = false;
+  const repaint = () => { if (pending) return; pending = true; requestAnimationFrame(async () => { pending = false; await atlas.setSpec(structuredClone(spec)); }); };
 
-  panel.addEventListener('input', (e) => {
-    const t = e.target;
-    if (t.id === 'name') { save(); return; }
-    const path = t.dataset.path;
-    if (!path) return;
-    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? +t.value : t.value;
-    set(spec, path, v);
-    repaint();
-    save();
-  });
+  function drawControls() {
+    styleControls($('#controls', el), spec, {
+      placeKinds, openAdvanced: advancedOpen,
+      onChange: (path, v) => { set(spec, path, v); repaint(); save(); },
+      onReplace: ({ preset, spec: pasted }) => {
+        spec = preset ? applyPreset(spec, preset) : resolveStyle(pasted);
+        fillKinds();
+        if (preset) toast(`Applied “${(PRESETS.find((p) => p.id === preset) || {}).label}”`);
+        drawControls(); repaint(); save();
+      },
+    });
+    const adv = $('#controls details.advanced', el);
+    if (adv) adv.ontoggle = () => { advancedOpen = adv.open; try { localStorage.setItem('ta-adv', adv.open ? '1' : '0'); } catch (_) { /* private mode */ } };
+  }
+  drawControls();
+
+  $('#name', el).oninput = save;
   $('#pick', el).onchange = (e) => { location.hash = `#/styles/${e.target.value}`; };
   $('#dup', el).onclick = async () => {
-    const name = `${row.name} copy`;
     try {
-      const { data } = await api('POST', '/api/styles', { name, spec });
+      const { data } = await api('POST', '/api/styles', { name: `${row.name} copy ${Date.now() % 1000}`, spec });
       await loadBootstrap();
       location.hash = `#/styles/${data.id}`;
     } catch (e) { toast(e.message, 'err'); }
   };
-  $('#reset', el).onclick = async () => {
-    if (!(await confirm('Reset style', 'Put every setting in this style back to the defaults?', 'Reset'))) return;
-    spec = defaultStyle();
-    await api('PUT', `/api/styles/${id}`, { name: row.name, spec });
-    await loadBootstrap();
-    render(el, [id]);
+  // Print preview of the current view, with finishing and decoration.
+  $('#preview', el).onclick = async () => {
+    const b = atlas.map.getBounds(), box = atlas.map.getContainer();
+    const btn = $('#preview', el); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rendering';
+    try {
+      const { canvas } = await renderPage({
+        routes: visible, places: store.places, spec, bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+        paper: { w: 300, h: 300 * (box.clientHeight / box.clientWidth), dpi: 300 }, composition: 900, outWidth: 1200, title: store.trip.trip_name || 'Our OE',
+      });
+      canvas.className = 'preview-img';
+      await modal({ title: `Print preview — ${row.name}`, body: canvas, wide: true });
+    } catch (e) { toast(e.message, 'err'); } finally { btn.disabled = false; btn.textContent = 'Print preview'; }
   };
   $('#del', el).onclick = async () => {
     if (store.styles.length === 1) { toast('Keep at least one style', 'err'); return; }

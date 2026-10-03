@@ -16,9 +16,10 @@ import { json, err, HttpError } from './api/shared.js';
 import * as routesApi from './api/routes.js';
 import * as tripApi from './api/trip.js';
 import * as mapsApi from './api/maps.js';
+import * as photosApi from './api/photos.js';
 import { defaultStyle } from '../web/lib/style.js';
 
-const API_MODULES = [routesApi, tripApi, mapsApi];
+const API_MODULES = [routesApi, tripApi, mapsApi, photosApi];
 
 async function form(request) {
   const f = await request.formData();
@@ -108,7 +109,13 @@ export default {
         if (url.pathname === '/' || url.pathname === '/index.html') return signInPage({ email: url.searchParams.get('email') || '' });
         return redirect('/');
       }
-      return env.ASSETS.fetch(request);
+      // File names aren't content-hashed, so make browsers revalidate (a cheap
+      // 304) — otherwise an old app.js/atlas.js can outlive a deploy and mix
+      // with new modules. Static data files can be cached for a day.
+      const res = await env.ASSETS.fetch(request);
+      const out = new Response(res.body, res);
+      out.headers.set('Cache-Control', url.pathname.startsWith('/data/') ? 'private, max-age=86400' : 'private, no-cache');
+      return out;
     } catch (e) {
       if (e instanceof HttpError) return err(e.message, e.status);
       console.error('worker error', url.pathname, e && e.stack || e);

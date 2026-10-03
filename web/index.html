@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Trip Atlas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c5d8c'/%3E%3Cpath d='M7 22c4-1 5-8 9-8s4 5 9 3' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='7' cy='22' r='2.2' fill='white'/%3E%3Ccircle cx='25' cy='17' r='2.2' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/app.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/map" aria-label="Trip Atlas home">
+    <span class="brand-mark"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 23c5-1 6-10 11-10s5 6 11 4" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/></svg></span>
+    <span class="word" id="tripName">Trip Atlas</span>
+  </a>
+  <nav id="nav" aria-label="Main">
+    <a href="#/map" data-nav="map">Map</a>
+    <a href="#/album" data-nav="album">Album</a>
+    <a href="#/import" data-nav="import">Import</a>
+    <a href="#/review" data-nav="review">Review <span class="count" id="navReview" hidden></span></a>
+  </nav>
+  <div class="topbar-right">
+    <div class="menu-wrap">
+      <button class="avatar" id="userMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span id="avatarInitials">·</span></button>
+      <div class="menu" id="userMenu" role="menu">
+        <div class="menu-head"><strong id="menuName">Signed in</strong><span id="menuEmail"></span></div>
+        <a class="menu-item" href="#/settings" role="menuitem"><span class="mi-icon">⚙</span>Trip &amp; people</a>
+        <a class="menu-item" href="#/styles" role="menuitem"><span class="mi-icon">◐</span>Map styles</a>
+        <div class="menu-sep"></div>
+        <form method="post" action="/auth/signout"><button class="menu-item" type="submit" role="menuitem"><span class="mi-icon">⎋</span>Sign out</button></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="view" tabindex="-1"><div class="page"><div class="empty"><span class="spinner"></span></div></div></main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

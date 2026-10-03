@@ -1,0 +1,36 @@
+name = "trip-atlas"
+main = "worker/index.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
+preview_urls = false
+
+# Every request goes through the Worker first so web/ is only served to people
+# who are signed in (worker/index.js); /lib/* is shared code, also gated.
+[assets]
+directory = "web"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trip-atlas"
+database_id = "00000000-0000-0000-0000-000000000000"   # replace with the id from `wrangler d1 create trip-atlas`
+migrations_dir = "migrations"
+
+# The original GPX files, kept so nothing is lost when geometry is simplified.
+[[r2_buckets]]
+binding = "ORIGINALS"
+bucket_name = "trip-atlas-originals"
+
+[observability]
+enabled = true
+
+[vars]
+# Comma-separated. These people can always sign in and are admins (Settings → People).
+OPERATOR_EMAILS = "rorywade.allen@gmail.com"
+
+# Secrets (wrangler secret put):
+#   GMAIL_SMTP_USER / GMAIL_SMTP_APP_PASSWORD — the Gmail account and App Password
+#     that send sign-in codes (same sender pattern as Site Scout and akahu-ledger).
+# Local dev only (.dev.vars, gitignored):
+#   DEV_SHOW_CODE=1 — show the sign-in code on the page instead of emailing it.

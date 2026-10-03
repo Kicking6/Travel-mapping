@@ -33,3 +33,8 @@ htmlcov/
 
 # Claude
 .claude/settings.local.json
+
+# Cloudflare / Node
+node_modules/
+.wrangler/
+.dev.vars

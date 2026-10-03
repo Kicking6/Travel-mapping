@@ -1,0 +1,15 @@
+{
+  "name": "trip-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OE trip routes → print-quality album maps. Cloudflare Worker + D1 + R2, plain-JS front end.",
+  "scripts": {
+    "test": "node --test",
+    "dev": "npx -y wrangler@4.142.0 dev --port 8788",
+    "db:local": "npx -y wrangler@4.142.0 d1 migrations apply trip-atlas --local",
+    "deploy": "npx -y wrangler@4.142.0 d1 migrations apply trip-atlas --remote && npx -y wrangler@4.142.0 deploy"
+  },
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.5.0" }
+}

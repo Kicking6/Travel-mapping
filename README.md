@@ -1,39 +1,20 @@
-# GPX OE Trip Editor
+# Trip Atlas
 
-A desktop application for importing, organising, and visualising GPX tracks from overland trips.
+Our OE's routes — drives, hikes, buses, ferries, flights, ski days — on one map, tidied up, and printed
+as sharp, full-resolution maps for the photo album.
 
-## Features
+- **Map** — every route of the trip; filter by dates, leg or transport; click a line or a row to edit it
+  (one or many at once).
+- **Album** — one album map per page: pick the dates/legs/countries, the paper size and dpi, frame it,
+  preview, export a print-ready PNG (e.g. 30 × 30 cm at 300 dpi = 3543 × 3543 px).
+- **Import** — drop GPX files, Google My Maps CSVs or whole folders. Dates come from the GPS recording
+  or the file name ("18:05:2025", "August 02 2025", "day 103 busing"); duplicates and thinned copies
+  are caught automatically. Add flights by airport code. Places (accommodation) from a CSV.
+- **Review** — what needs a person: no date (with a suggested one), guessed years, possible
+  duplicates, unknown transport type, no country.
+- **Map styles** — land, water, labels, borders, roads, and a colour/width per transport type.
 
-- Import GPX files from a folder (including subfolders)
-- Interactive map view powered by MapLibre GL
-- Edit trip metadata: name, activity type, date, notes, and colour
-- Filter and browse tracks by date range or activity type
-- Export tracks as GPX or GeoJSON, or save the map as an image
-- SQLite database for persistent storage
+Built like Site Scout and akahu-ledger: a Cloudflare Worker with D1 and R2, plain JavaScript, no build
+step. Sign-in is a 6-digit code by email. See [CLAUDE.md](CLAUDE.md) for how it works and how to run it.
 
-## Requirements
-
-- Python 3.12+
-- macOS (tested on macOS 15)
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
-python main.py
-```
-
-Or double-click `Launch GPX Manager.command` on macOS.
-
-## Stack
-
-- [PyQt6](https://pypi.org/project/PyQt6/) — UI framework
-- [PyQt6-WebEngine](https://pypi.org/project/PyQt6-WebEngine/) — embedded map rendering
-- [MapLibre GL JS](https://maplibre.org/) — interactive map
-- [gpxpy](https://github.com/tkrajina/gpxpy) — GPX parsing
-- SQLite — local data storage
+The previous desktop app (PyQt6) is kept in [legacy/](legacy/) for reference.

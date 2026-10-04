@@ -1,12 +1,12 @@
 ---
-name: trip-feedback
+name: Map-trip-feedback
 description: >
   Process the in-app feedback Rory and Eva leave through the ✎ Feedback button
   / Shift+F (Feedback → Mine and Everyone's; table user_feedback): pull every
   open report with its screenshot and captured context from production, trace
   each one to the code or the data, fix what is fixable, and report back on the
-  rest. Use when the user says "check my feedback", "process feedback", "what
-  has Eva reported", or invokes /trip-feedback.
+  rest. Every processed report must be closed out (status + reply) and verified. Use when the user says "check my feedback", "process feedback", "what
+  has Eva reported", or invokes /Map-trip-feedback.
 ---
 
 # Processing in-app feedback
@@ -28,7 +28,7 @@ session scratchpad, never in the repo, and delete them at the end.
 ## 1. Pull the open reports
 
 ```bash
-.claude/skills/trip-feedback/fetch-feedback.sh "<scratchpad>/feedback"
+.claude/skills/Map-trip-feedback/fetch-feedback.sh "<scratchpad>/feedback"
 ```
 
 Writes `feedback.json` (every `new`/`triaged` row, `context` parsed, `code`
@@ -84,13 +84,43 @@ Ask before committing, pushing or deploying (`npm run deploy` applies
 migrations and deploys). Confirm the deploy succeeded (the live file or route
 answers) before step 6.
 
-## 6. Close the loop (ask first, after a successful deploy)
+## 6. Close out every report — this is the most important step
 
-A reply and status show on the author's Feedback page. Only write one once the
-fix is live **and** the user said you may reply to that report. Prefer the
-connector's `reply_feedback` or a targeted `UPDATE … WHERE id = <id>` (the
-same statement `setFeedbackStatus` / `setFeedbackReply` runs) over clicking
-through the UI:
+**A report is not finished until it is closed in production.** Fixing the code
+is only half the job: Rory and Eva see status and reply on their Feedback →
+Mine page, and an open item with a shipped fix looks like nobody listened.
+Never end the session, and never write the step-7 summary, while a processed
+report is still `new` / `triaged` without the user having consciously decided
+to leave it that way.
+
+Closing is a write that the author sees, so two gates apply every time:
+
+1. For a **Fix**, the fix is live (deploy checked, not assumed).
+2. The user has said you may reply to that report. Ask — once the deploy is
+   confirmed, put the whole batch in one message: for each report show the
+   proposed status and the exact reply text, and ask "close these out?". An
+   earlier approval to deploy does not cover this.
+
+Don't skip the ask because it's tedious — and don't skip the close-out because
+the ask is pending. If the user hasn't answered, say plainly in your final
+message that N reports are still open and need closing.
+
+**Every processed report gets a proposed close-out**, not just Fixes:
+
+| Bucket | Status | Reply |
+|---|---|---|
+| Fix (live) | `done` | What changed, that it is live, and how to see it |
+| Not a bug | `done` (or `wontfix` if nothing will change) | Why it works this way and where the setting is |
+| Needs a decision | stays `triaged` | The question and the options, so they can answer |
+| Idea | `triaged`, or `wontfix` if declined | Scope and where it would live, or why not |
+
+Replies are written to the author in plain language, one or two sentences,
+with the `TA-<id>` code. Statuses are `new`, `triaged`, `done`, `wontfix`.
+
+Write with the connector's `reply_feedback`, or a targeted `UPDATE … WHERE id
+= <id>` (the same statement `setFeedbackStatus` / `setFeedbackReply` runs).
+Prefer these over clicking through the UI — identical rows make element refs
+easy to point at the wrong report.
 
 ```sql
 UPDATE user_feedback SET status = 'done', resolved_at = datetime('now'),
@@ -99,8 +129,27 @@ UPDATE user_feedback SET status = 'done', resolved_at = datetime('now'),
 WHERE id = <id>;
 ```
 
+For `wontfix` use `status = 'wontfix'` with the same other columns. For
+`triaged` leave `resolved_at` NULL and set only `status`, `resolution_note`
+and `reply_at`.
+
+**Verify every close-out** with a read-only query, never a screenshot:
+
+```bash
+npx -y wrangler@4.142.0 d1 execute trip-atlas --remote --json --command \
+  "SELECT id, status, resolved_at, reply_at, resolution_note FROM user_feedback WHERE id IN (<ids>)"
+```
+
+Check each row has the intended `status`, a non-null `reply_at` and
+`resolution_note`, and (for `done`/`wontfix`) a `resolved_at`. Then re-run
+`fetch-feedback.sh` — the closed reports must no longer appear in the open
+list. Anything still listed wasn't closed; fix it before moving on.
+
 ## 7. Report back
 
-One table: `code · who · what they said · cause · outcome`, grouped by bucket.
-Say which fixes were checked in a browser and which only by tests, and list the
-needs-a-decision items with the actual choice. Delete the scratchpad folder.
+One table: `code · who · what they said · cause · outcome · closed?`, grouped
+by bucket. The **closed?** column shows the verified final status for each
+report ("done, replied", "triaged, awaiting decision", or "STILL OPEN — needs
+your ok to reply"). Say which fixes were checked in a browser and which only by
+tests, and list the needs-a-decision items with the actual choice. Delete the
+scratchpad folder.

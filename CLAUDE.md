@@ -124,7 +124,7 @@ text, screenshot with highlight / black-out / crop). `web/diag.js` keeps the las
 requests. Server: `worker/feedback.js` (rules, ported from Site Scout; codes `TA-<id>`; screenshots in
 the originals bucket under `feedback/`, hard-capped at 2 GB), `worker/api/feedback.js` (routes; a
 `critical` report emails the other admin). UI: `#/feedback` (Mine / Everyone's). Connector:
-`list_feedback`, `reply_feedback`. Processing: `.claude/skills/trip-feedback/`.
+`list_feedback`, `reply_feedback`. Processing: `.claude/skills/Map-trip-feedback/`.
 
 ## Print export (web/map/render.js)
 

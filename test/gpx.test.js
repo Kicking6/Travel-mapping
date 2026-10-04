@@ -145,3 +145,18 @@ test('land polygons are split and rewound: outer ring anticlockwise, holes clock
   assert.ok(area(f.geometry.coordinates[0]) > 0);
   assert.ok(area(f.geometry.coordinates[1]) < 0);
 });
+
+test('route palettes: every type coloured; tuning shifts; fit keeps lines readable on the land', async () => {
+  const { applyPalette, paletteColors, contrastRatio, suggestPalette, defaultStyle, validateStyle, ROUTE_PALETTES } = await import('../web/lib/style.js');
+  const s = defaultStyle();
+  for (const p of ROUTE_PALETTES) assert.equal(Object.keys(p.colors).length, Object.keys(s.routes).length, p.id);
+  const neon = applyPalette(s, { id: 'neon' });
+  assert.equal(neon.routes.walk.color, '#ff4d6d');
+  assert.equal(neon.routes.walk.width, s.routes.walk.width); // widths untouched
+  assert.notEqual(applyPalette(s, { id: 'neon', hue: 40 }).routes.walk.color, '#ff4d6d');
+  const dark = { ...s, land: '#1d2533' };
+  for (const c of Object.values(paletteColors(dark, { id: 'ink', fit: true, contrast: 3 }))) assert.ok(contrastRatio(c, '#1d2533') >= 2.95, c);
+  assert.equal(suggestPalette(dark), 'neon');
+  assert.equal(validateStyle(applyPalette(s, { id: 'okabe', hue: -30, saturation: 20, lightness: -10 })), null);
+  assert.match(validateStyle({ ...s, palette: { ...s.palette, hue: 500 } }), /hue/);
+});

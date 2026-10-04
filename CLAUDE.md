@@ -109,6 +109,10 @@ subtitle, legend, scale bar, north arrow, panel). Eight presets (`PRESETS`). Con
 once in `views/style-controls.js` and rendered for both the Styles page and an album page's Look tab.
 Label sizes are scaled by rewriting zoom-curve stops (`map/scale-size.js`) — MapLibre rejects a zoom
 curve wrapped in `*`.
+Route palettes (`ROUTE_PALETTES`, `spec.palette` = id + hue/saturation/lightness shifts + "fit" to a
+minimum contrast against the land colour): picking or tuning one *rewrites* `routes[type].color`, so
+every renderer keeps reading the per-type colours; a hand-edited colour lasts until the next pick.
+`places.scale` sizes every pin at once (`pinPx`).
 
 ## Print export (web/map/render.js)
 
@@ -127,8 +131,17 @@ rescaled by log₂(layout width / frame width). Route data: GPX / GeoJSON / KML 
 
 ## Drawing, photos, film
 
-- **Draw** (#/draw): click waypoints; OSRM on routing.openstreetmap.de (car / foot / bike, fair use)
-  or straight lines; saved as `source_kind = manual`.
+- **Draw** (#/draw): waypoints with a routing mode *per leg* — OSRM on routing.openstreetmap.de
+  (car / foot / bike), BRouter (hiking-mountain), straight, or freehand strokes. Legs are routed and
+  cached one at a time (never aborted — an aborted cached promise left legs stuck). Drag the line to
+  insert a via point; undo/redo snapshots; Photon search; Open-Meteo elevation (≤100 samples, 3 m
+  deadband, Naismith time for walks). Draw-only bases, never on albums: roads on by default
+  (zoom-scaled widths painted after every setSpec), OpenTopoMap, Esri World Imagery, EOX Sentinel-2
+  cloudless 2024 — rasters go under the roads/borders/names (hybrid); trails come from the vector
+  `transportation` path/track classes because Waymarked Trails tiles send no CORS header. Overlays go
+  before `ta-glow`, not the first `ta-` layer (the atlas's shading layers sit under the water).
+  A traced image is a MapLibre image source with draggable corners — session only, never uploaded.
+  Saved as `source_kind = manual`.
 - **Photos** (#/photos): exifr reads GPS + DateTimeOriginal — never pass exifr a `pick` list, it
   drops GPSLatitudeRef and flips every southern/western photo (verified: Peru → Bay of Bengal).
   Camera times without a zone are local; they're compared with route UTC times using the route's

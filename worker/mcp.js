@@ -12,7 +12,7 @@ import { routesFromGpx, buildRoute } from '../web/lib/gpx.js';
 import { decodePolyline, simplify } from '../web/lib/geo.js';
 import { TYPE_IDS } from '../web/lib/types.js';
 import { parseFlightLines, parseItinerary, flightLegs, findMissingTravel } from '../web/lib/travel.js';
-import { resolveStyle, mergeStyle, PRESETS, applyPreset } from '../web/lib/style.js';
+import { resolveStyle, mergeStyle, PRESETS, applyPreset, applyPalette, ROUTE_PALETTES } from '../web/lib/style.js';
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER = { name: 'trip-atlas', title: 'Trip Atlas', version: '1.0.0' };
@@ -216,8 +216,9 @@ const TOOLS = [
       if (!s) throw new ToolError(`No style ${a.id}`);
       return ok({ id: s.id, name: s.name, spec: resolveStyle(s.spec) });
     } },
-  { name: 'update_style', title: 'Change a map style', description: 'Deep-merge changes into a style, e.g. {"land":"#efe3c8","routes":{"walk":{"color":"#c0392b","width":3}},"detail":{"coastline":"50m"}}. Or apply a preset first with preset.',
-    inputSchema: S({ id: int('Style id'), changes: { type: 'object' }, preset: str('Preset id to start from'), name: str('Rename') }, ['id']),
+  { name: 'update_style', title: 'Change a map style', description: 'Deep-merge changes into a style (recolour every route type at once with palette), e.g. {"land":"#efe3c8","routes":{"walk":{"color":"#c0392b","width":3}},"detail":{"coastline":"50m"}}. Or apply a preset first with preset.',
+    inputSchema: S({ id: int('Style id'), changes: { type: 'object' }, preset: str('Preset id to start from'), name: str('Rename'),
+      palette: S({ id: str(`Route palette: ${ROUTE_PALETTES.map((p) => `${p.id} (${p.for})`).join(', ')}`), hue: int('Hue shift −180…180°'), saturation: int('Saturation −100…100 %'), lightness: int('Lighter/darker −50…50 %'), fit: { type: 'boolean', description: 'Push colours until they stand out from the land colour' }, contrast: { type: 'number', description: 'Minimum contrast ratio when fit (default 3)' } }) }, ['id']),
     async run(ctx, a) {
       const b = await api(ctx, 'GET', '/api/bootstrap');
       const s = b.styles.find((x) => x.id === a.id);
@@ -225,6 +226,7 @@ const TOOLS = [
       let spec = resolveStyle(s.spec);
       if (a.preset) spec = applyPreset(spec, a.preset);
       if (a.changes) spec = mergeStyle(spec, a.changes);
+      if (a.palette) spec = applyPalette(spec, a.palette);
       await api(ctx, 'PUT', `/api/styles/${a.id}`, { name: a.name || s.name, spec });
       return ok({ ok: true, id: a.id });
     } },

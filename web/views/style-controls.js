@@ -2,7 +2,7 @@
 // and an album page's "Customise this page" panel use the same component.
 // Basic sections first; the designer controls live under "Advanced".
 import { esc } from '../app.js';
-import { BASEMAPS, PLACE_KINDS, FONTS, TITLE_FONTS, DASHES, PRESETS } from '../lib/style.js';
+import { BASEMAPS, PLACE_KINDS, FONTS, TITLE_FONTS, DASHES, PRESETS, ROUTE_PALETTES, paletteColors, suggestPalette } from '../lib/style.js';
 import { TYPES } from '../lib/types.js';
 import { SHAPES, GLYPHS } from '../lib/pins.js';
 
@@ -45,6 +45,10 @@ export function sections(spec, placeKinds) {
       line('layers.ferries', 'Ferry lines'), { k: 'lineNoWidth', base: 'layers.parks', label: 'Parks' }, t('layers.buildings.show', 'Buildings (close zoom)'),
     ] },
     { id: 'routes', title: 'Our routes', rows: [
+      { k: 'palette' },
+      r('palette.hue', 'Shift hue', -180, 180, 5, '°'), r('palette.saturation', 'Saturation', -100, 100, 5, '%'), r('palette.lightness', 'Lighter / darker', -50, 50, 1, '%'),
+      t('palette.fit', 'Keep lines readable on the land colour'), r('palette.contrast', 'Minimum contrast', 1.5, 7, 0.5, ':1'),
+      { k: 'note', text: 'Each type below can still be fine-tuned by hand — picking or tuning a palette recolours them all again.' },
       ...TYPES.map((ty) => ({ k: 'route', id: ty.id, label: ty.label })),
       r('routeOpacity', 'Opacity', 0.1, 1, 0.05), line('routeCasing', 'White edge'),
     ] },
@@ -153,6 +157,11 @@ function rowHtml(row, spec) {
         <select class="select sm" data-path="${b}.glyph" title="Symbol">${Object.entries(GLYPHS).map(([id, x]) => `<option value="${id}" ${(k.glyph || 'none') === id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
         <input type="color" data-path="${b}.glyphColor" value="${esc(k.glyphColor || '#ffffff')}" title="Symbol colour"></div></div>`;
     }
+    case 'palette': {
+      const cur = (spec.palette && spec.palette.id) || 'classic';
+      return `<div class="palette-grid">${ROUTE_PALETTES.map((p) => `<button type="button" class="palette-btn ${p.id === cur ? 'on' : ''}" data-palette="${p.id}" title="${esc(p.label)} — ${esc(p.for)}"><span class="pal-dots">${TYPES.map((ty) => `<i style="background:${p.colors[ty.id]}"></i>`).join('')}</span><span class="pal-name">${esc(p.label)}</span><span class="pal-for">${esc(p.for)}</span></button>`).join('')}</div>
+        <button type="button" class="btn sm" data-palette-suggest title="Pick the palette that suits this style's land colour">Suggest one for this background</button>`;
+    }
     case 'presets': return `<div class="preset-grid">${PRESETS.map((p) => `<button type="button" class="preset" data-preset="${p.id}" title="${esc(p.label)}"><span class="preset-swatch" style="${swatch(p)}"></span>${esc(p.label)}</button>`).join('')}</div>`;
     case 'note': return `<p class="help">${esc(row.text)}</p>`;
     case 'file': return `<div class="toolbar"><button type="button" class="btn sm" data-file="copy">Copy style as JSON</button><button type="button" class="btn sm" data-file="paste">Paste a style…</button></div><p class="help">Share a look between styles, or keep a backup.</p>`;
@@ -176,8 +185,28 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
   const block = (x) => `<details class="style-group" ${['presets', 'base', 'routes', 'detail'].includes(x.id) ? 'open' : ''}><summary class="section-title">${esc(x.title)}</summary><div class="stack">${x.rows.map((rw) => rowHtml(rw, spec)).join('')}</div></details>`;
   host.innerHTML = basic.map(block).join('') + (adv.length ? `<details class="advanced" ${openAdvanced ? 'open' : ''}><summary><span>Advanced</span><span class="help">projection · terrain · land cover · visited countries · typography · route effects · finishing · title & legend</span></summary>${adv.map(block).join('')}</details>` : '');
 
+  const setLocal = (path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), spec)[last] = v; };
+  const recolour = () => {
+    const cols = paletteColors(spec);
+    const routes = structuredClone(spec.routes);
+    for (const [id, col] of Object.entries(cols)) { routes[id] = { ...(routes[id] || {}), color: col }; const inp = host.querySelector(`input[type=color][data-path="routes.${id}.color"]`); if (inp) inp.value = col; }
+    spec.routes = routes;
+    onChange('routes', structuredClone(routes));
+  };
+  const setPalette = (id) => {
+    setLocal('palette.id', id); onChange('palette.id', id);
+    host.querySelectorAll('[data-palette]').forEach((b) => b.classList.toggle('on', b.dataset.palette === id));
+    recolour();
+  };
+
   host.oninput = (e) => {
     const el = e.target, path = el.dataset.path;
+    if (path && path.startsWith('palette.')) {
+      const v = el.type === 'checkbox' ? el.checked : +el.value;
+      if (el.type === 'range') { const out = el.parentElement.querySelector('output'); const row = secs.flatMap((x) => x.rows).find((x) => x.path === path); if (out) out.textContent = fmt(v) + ((row && row.unit) || ''); }
+      setLocal(path, v); onChange(path, v); recolour();
+      return;
+    }
     if (el.dataset.auto) {
       const col = host.querySelector(`input[type=color][data-path="${el.dataset.auto}"]`);
       col.disabled = !el.checked;
@@ -190,6 +219,9 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
     onChange(path, v);
   };
   host.onclick = async (e) => {
+    const pb = e.target.closest('[data-palette]');
+    if (pb) { setPalette(pb.dataset.palette); return; }
+    if (e.target.closest('[data-palette-suggest]')) { setPalette(suggestPalette(spec)); return; }
     const pr = e.target.closest('[data-preset]');
     if (pr) { onReplace && onReplace({ preset: pr.dataset.preset }); return; }
     const f = e.target.closest('[data-file]');

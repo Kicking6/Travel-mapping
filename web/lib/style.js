@@ -78,6 +78,7 @@ export function defaultStyle() {
       softness: 0,                         // px of blur along the coast
       baseLevel: 0,                        // 0 = automatic; 2–12 caps how detailed the base map's shapes get
       routeSimplify: 0,                    // metres — smooth our routes for the overview look
+      routeCurve: 0,                       // 0 = straight segments; 1–5 rounds the corners (each step doubles the points)
     },
     smooth: true,
 
@@ -100,6 +101,8 @@ export function defaultStyle() {
       arrows: { show: false, spacing: 120, size: 0.7, color: null },
       endpoints: { show: false, size: 3.5, color: '#ffffff', stroke: '#16202b' },
       cap: 'round',                        // round | butt | square
+      // A walk drawn smaller than `below` of the map view (its extent / the view's diagonal) fades into a dot (TA-4).
+      walkPoi: { show: true, below: 0.05, size: 5 },
     },
     finish: {                              // applied on export (and the print preview)
       grain: 0, vignette: 0, tint: { show: false, color: '#f3e9d2', opacity: 0.12, blend: 'multiply' },
@@ -220,6 +223,8 @@ export function validateStyle(spec) {
     if (/palette\.(saturation)$/.test(path) && typeof v === 'number' && !(v >= -100 && v <= 100)) errs.push(`${path} out of range`);
     if (/palette\.(lightness)$/.test(path) && typeof v === 'number' && !(v >= -50 && v <= 50)) errs.push(`${path} out of range`);
     if (/routes\.\w+\.simplify$/.test(path) && v !== null && !(typeof v === 'number' && v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
+    if (/routeCurve$/.test(path) && typeof v === 'number' && !(Number.isInteger(v) && v >= 0 && v <= 5)) errs.push(`${path} must be 0–5`);
+    if (/walkPoi\.below$/.test(path) && typeof v === 'number' && !(v >= 0.005 && v <= 0.5)) errs.push(`${path} must be 0.5%–50%`);
     if (/routeSimplify$/.test(path) && typeof v === 'number' && !(v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/(opacity|grain|vignette)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 1)) errs.push(`${path} must be 0–1`);
   })(spec, 'style');

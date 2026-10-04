@@ -115,6 +115,10 @@ every renderer keeps reading the per-type colours; a hand-edited colour lasts un
 `places.scale` sizes every pin at once (`pinPx`). Line detail is per type: `routes[type].simplify`
 (metres; `null` = follow `detail.routeSimplify`, walks default to `0` = full detail) — `routeCoords()` in
 atlas.js applies it for the map, the film and the PDF/SVG export alike.
+`detail.routeCurve` (0–5) then rounds the corners with Chaikin cutting (`curve()` in geo.js; each step doubles
+the points; flights excluded). `routeFx.walkPoi` fades a walk into a dot at its middle once it is under `below`
+(5%) of the map view's diagonal (`walkPoiAmount()` in geo.js): on screen it is the per-walk feature-state `poi`,
+driven by zoom in `createAtlas`; the PDF/SVG export (`projectVector`) uses the same maths with opacities.
 
 ## Feedback (from Site Scout)
 
@@ -124,7 +128,7 @@ text, screenshot with highlight / black-out / crop). `web/diag.js` keeps the las
 requests. Server: `worker/feedback.js` (rules, ported from Site Scout; codes `TA-<id>`; screenshots in
 the originals bucket under `feedback/`, hard-capped at 2 GB), `worker/api/feedback.js` (routes; a
 `critical` report emails the other admin). UI: `#/feedback` (Mine / Everyone's). Connector:
-`list_feedback`, `reply_feedback`. Processing: `.claude/skills/Map-trip-feedback/`.
+`list_feedback`, `reply_feedback`. Processing: `.claude/skills/map-trip-feedback/`.
 
 ## Print export (web/map/render.js)
 

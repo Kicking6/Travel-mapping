@@ -18,6 +18,8 @@ const t = (path, label) => ({ k: 'toggle', path, label });
 const r = (path, label, min, max, step, unit = '', show) => ({ k: 'range', path, label, min, max, step, unit, show });
 // What a base-map detail level means on the ground: features smaller than ~this are smoothed away.
 const levelKm = (z) => (z ? `≈ ${(40075 / (512 * 2 ** z) * 4).toFixed(z > 6 ? 1 : 0)} km` : 'Automatic');
+const curveLabel = (k) => (k ? `${2 ** k}× points` : 'Off');
+const pct = (v) => `${Math.round(v * 100)}%`;
 const metres = (m) => (m ? (m >= 1000 ? `${+(m / 1000).toFixed(1)} km` : `${m} m`) : 'Off');
 const n = (path, label, min, max, step) => ({ k: 'number', path, label, min, max, step });
 const s = (path, label, options) => ({ k: 'select', path, label, options });
@@ -34,7 +36,9 @@ export function sections(spec, placeKinds) {
       r('detail.softness', 'Coast softness (with a smoothed coastline)', 0, 20, 0.5, 'px'),
       r('detail.baseLevel', 'Base-map detail', 0, 12, 1, '', levelKm),
       { k: 'note', text: 'Base-map detail caps how much the roads, borders and lakes are drawn — slide left for a cleaner, more generalised map at any zoom.' },
-      r('detail.routeSimplify', 'Smooth our routes (all types)', 0, 20000, 250, '', metres),
+      r('detail.routeSimplify', 'Simplify our routes (all types)', 0, 20000, 250, '', metres),
+      r('detail.routeCurve', 'Round the corners into curves', 0, 5, 1, '', curveLabel),
+      { k: 'note', text: 'Simplify drops points (corners stay sharp); rounding then turns the corners into smooth curves — more points make a smoother curve. Both apply to every route type except flights.' },
       { k: 'note', text: 'Line detail per type — walks can stay crisp while long drives are smoothed. “Same as all” follows the slider above.' },
       ...TYPES.filter((ty) => ty.id !== 'flight').map((ty) => ({ k: 'select', path: `routes.${ty.id}.simplify`, num: true, label: ty.label, options: DETAIL_OPTS })),
     ] },
@@ -54,6 +58,10 @@ export function sections(spec, placeKinds) {
       { k: 'note', text: 'Each type below can still be fine-tuned by hand — picking or tuning a palette recolours them all again.' },
       ...TYPES.map((ty) => ({ k: 'route', id: ty.id, label: ty.label })),
       r('routeOpacity', 'Opacity', 0.1, 1, 0.05), line('routeCasing', 'White edge'),
+      t('routeFx.walkPoi.show', 'Short walks become dots when zoomed out'),
+      r('routeFx.walkPoi.below', 'Turn into a dot below', 0.01, 0.2, 0.01, '', pct),
+      r('routeFx.walkPoi.size', 'Walk dot size', 2, 14, 0.5, 'px'),
+      { k: 'note', text: 'A walk shorter than this share of the map view fades smoothly into a dot at its middle, so it never disappears.' },
     ] },
     { id: 'places', title: 'Places (accommodation)', rows: [
       t('places.show', 'Show places'), t('places.labels', 'Label places'),

@@ -40,6 +40,32 @@ export function bboxIntersects(a, b) {
   return !!a && !!b && a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 }
 
+// Chaikin corner cutting (TA-2): each pass swaps every corner for two points a
+// quarter and three quarters along its edges, so a jagged polyline becomes a
+// smooth curve. Every pass doubles the points per segment (level 3 = 8x). The
+// first and last points stay put; a runaway line stops growing at 20k points.
+export function curve(coords, level) {
+  let pts = coords;
+  for (let i = 0; i < level && pts.length >= 3 && pts.length < 20000; i++) {
+    const out = [pts[0]];
+    for (let j = 0; j < pts.length - 1; j++) {
+      const [ax, ay] = pts[j], [bx, by] = pts[j + 1];
+      out.push([0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by], [0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by]);
+    }
+    out.push(pts[pts.length - 1]);
+    pts = out;
+  }
+  return pts;
+}
+
+// How far a short walk has turned into a dot (TA-4): 0 = still a line, 1 = a
+// dot. `share` is the walk's size as a fraction of the map view; it starts to
+// fade below `below` and is a dot by 70% of that — eased, so it never pops.
+export function walkPoiAmount(share, below) {
+  const t = Math.max(0, Math.min(1, (below - share) / (below * 0.3)));
+  return t * t * (3 - 2 * t);
+}
+
 // Douglas–Peucker on a local equirectangular projection, tolerance in metres.
 // Iterative (an explicit stack) so a 60k-point hike can't blow the call stack.
 export function simplify(coords, toleranceM) {

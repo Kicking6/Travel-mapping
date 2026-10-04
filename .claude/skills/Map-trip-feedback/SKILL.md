@@ -1,12 +1,12 @@
 ---
-name: Map-trip-feedback
+name: map-trip-feedback
 description: >
   Process the in-app feedback Rory and Eva leave through the ✎ Feedback button
   / Shift+F (Feedback → Mine and Everyone's; table user_feedback): pull every
   open report with its screenshot and captured context from production, trace
   each one to the code or the data, fix what is fixable, and report back on the
   rest. Every processed report must be closed out (status + reply) and verified. Use when the user says "check my feedback", "process feedback", "what
-  has Eva reported", or invokes /Map-trip-feedback.
+  has Eva reported", or invokes /map-trip-feedback.
 ---
 
 # Processing in-app feedback
@@ -28,7 +28,7 @@ session scratchpad, never in the repo, and delete them at the end.
 ## 1. Pull the open reports
 
 ```bash
-.claude/skills/Map-trip-feedback/fetch-feedback.sh "<scratchpad>/feedback"
+.claude/skills/map-trip-feedback/fetch-feedback.sh "<scratchpad>/feedback"
 ```
 
 Writes `feedback.json` (every `new`/`triaged` row, `context` parsed, `code`

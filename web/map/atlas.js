@@ -11,7 +11,7 @@
 import { BASEMAPS, PLACE_KINDS, DASHES, rampColor, pinPx } from '../lib/style.js';
 import { loadCountries } from '../lib/countries.js';
 import { SHAPES, pinParts } from '../lib/pins.js';
-import { simplify } from '../lib/geo.js';
+import { simplify, curve, walkPoiAmount } from '../lib/geo.js';
 import { scaleSize } from './scale-size.js';
 
 const maplibregl = window.maplibregl;
@@ -178,16 +178,22 @@ function tripSpan(routes) {
 }
 
 // A route's line as the style draws it: the type's own smoothing if it has
-// one (walks default to full detail), else "Smooth our routes" for all.
+// one (walks default to full detail), else "Simplify our routes" for all,
+// then rounded into curves if the style asks for it.
 // Shared with the vector (PDF/SVG) export so print matches the screen.
-const simplified = new Map(); // `${id}:${tol}:${n}` → coords
+const simplified = new Map(); // `${id}:${tol}:${curve}:${n}` → coords
 export function routeCoords(r, spec) {
   const ts = spec.routes[r.type] || spec.routes.other || {};
   const own = ts.simplify;
-  const tol = r.type === 'flight' ? 0 : own != null ? own : (spec.detail && spec.detail.routeSimplify) || 0;
-  if (!tol || r.coords.length < 3) return r.coords;
-  const k = `${r.id}:${tol}:${r.coords.length}`;
-  if (!simplified.has(k)) { if (simplified.size > 5000) simplified.clear(); simplified.set(k, simplify(r.coords, tol)); }
+  const flight = r.type === 'flight';
+  const tol = flight ? 0 : own != null ? own : (spec.detail && spec.detail.routeSimplify) || 0;
+  const round = flight ? 0 : (spec.detail && spec.detail.routeCurve) || 0;
+  if ((!tol && !round) || r.coords.length < 3) return r.coords;
+  const k = `${r.id}:${tol}:${round}:${r.coords.length}`;
+  if (!simplified.has(k)) {
+    if (simplified.size > 5000) simplified.clear();
+    simplified.set(k, curve(tol ? simplify(r.coords, tol) : r.coords, round));
+  }
   return simplified.get(k);
 }
 function routeFeatures(routes, spec) {
@@ -206,6 +212,31 @@ function routeFeatures(routes, spec) {
     });
   }
   return { type: 'FeatureCollection', features: feats };
+}
+
+// ── Short walks fade into a dot (TA-4) ───────────────────────────────────
+// A walk's size is its bounding-box diagonal as a share of the map view's
+// diagonal. At `below` (5%) it starts to fade; by 70% of that it is a dot.
+// The fade follows the zoom continuously, so it is smooth, not a pop.
+const WORLD_PX = 512; // MapLibre's world size at zoom 0
+const merc = ([lon, lat]) => [(lon + 180) / 360, 0.5 - Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360)) / (2 * Math.PI)];
+const POI = ['coalesce', ['feature-state', 'poi'], 0];
+function walkPoiFeatures(routes, spec) {
+  const wp = spec.routeFx.walkPoi;
+  const feats = [];
+  if (!wp || !wp.show) return { type: 'FeatureCollection', features: feats, info: [] };
+  const info = [];
+  for (const r of routes) {
+    if (r.type !== 'walk' || r.coords.length < 2 || (spec.routes.walk && spec.routes.walk.show === false)) continue;
+    const ts = spec.routes.walk || {};
+    let [w, so, e, n] = r.bbox || [180, 90, -180, -90];
+    if (!r.bbox) for (const [lo, la] of r.coords) { if (lo < w) w = lo; if (lo > e) e = lo; if (la < so) so = la; if (la > n) n = la; }
+    const [ax, ay] = merc([w, so]), [bx, by] = merc([e, n]);
+    const unit = Math.hypot(bx - ax, by - ay);
+    info.push({ id: r.id, unit });
+    feats.push({ type: 'Feature', properties: { id: r.id, color: r.color || ts.color || '#c0392b' }, geometry: { type: 'Point', coordinates: r.coords[Math.floor(r.coords.length / 2)] } });
+  }
+  return { type: 'FeatureCollection', features: feats, info };
 }
 
 function endpointFeatures(routes, spec) {
@@ -319,7 +350,8 @@ function addOurLayers(map, spec) {
   const waterId = firstOf(map, (l) => l['source-layer'] === 'water' && l.type === 'fill');
   const add = (src, def) => { if (!map.getSource(src)) map.addSource(src, def); };
   add('ta-routes', { type: 'geojson', data: EMPTY, promoteId: 'id', tolerance: 0.2, lineMetrics: true });
-  add('ta-ends', { type: 'geojson', data: EMPTY });
+  add('ta-ends', { type: 'geojson', data: EMPTY, promoteId: 'id' });
+  add('ta-walkpoi', { type: 'geojson', data: EMPTY, promoteId: 'id' });
   add('ta-places', { type: 'geojson', data: EMPTY, promoteId: 'id' });
   add('ta-active', { type: 'geojson', data: EMPTY, lineMetrics: true });
   add('ta-photos', { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 36, clusterMaxZoom: 13 });
@@ -347,6 +379,7 @@ function addOurLayers(map, spec) {
   map.addLayer({ id: 'ta-line-grad', type: 'line', source: 'ta-routes', layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: {} }, firstLabel);
   map.addLayer({ id: 'ta-arrows', type: 'symbol', source: 'ta-routes', layout: { 'symbol-placement': 'line', 'icon-image': 'ta-arrow', 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map', visibility: 'none' }, paint: {} });
   map.addLayer({ id: 'ta-ends', type: 'circle', source: 'ta-ends', paint: {} });
+  map.addLayer({ id: 'ta-walkpoi', type: 'circle', source: 'ta-walkpoi', paint: {} });
   map.addLayer({ id: 'ta-active-casing', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['+', ['get', 'width'], 3] } });
   map.addLayer({ id: 'ta-active', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] } });
   map.addLayer({ id: 'ta-active-head', type: 'circle', source: 'ta-active', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['get', 'r'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 } });
@@ -362,7 +395,7 @@ function addOurLayers(map, spec) {
 function paintOurs(map, spec, visibleFilter, mode) {
   const fx = spec.routeFx, cs = spec.routeCasing, overlay = mode !== 'base', base = mode !== 'overlay';
   const withVis = (f) => (visibleFilter ? (f ? ['all', f, visibleFilter] : visibleFilter) : f || null);
-  const op = (a) => ['case', DIM, 0.15, a];
+  const op = (a) => ['*', ['-', 1, POI], ['case', DIM, 0.15, a]];
   const width = ['case', SEL, ['+', ['get', 'width'], 2.5], HOV, ['+', ['get', 'width'], 1.5], ['get', 'width']];
   const gradRoute = fx.gradient.mode === 'route';
 
@@ -392,7 +425,7 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setL(map, 'ta-line-grad', 'visibility', vis(overlay && gradRoute));
   setP(map, 'ta-line-grad', 'line-gradient', ['interpolate', ['linear'], ['line-progress'], 0, fx.gradient.from, 0.5, fx.gradient.via, 1, fx.gradient.to]);
   setP(map, 'ta-line-grad', 'line-width', width);
-  setP(map, 'ta-line-grad', 'line-opacity', spec.routeOpacity);
+  setP(map, 'ta-line-grad', 'line-opacity', ['*', ['-', 1, POI], spec.routeOpacity]);
   map.setFilter('ta-line-grad', withVis(['==', ['get', 'dash'], 'solid']));
 
   setL(map, 'ta-arrows', 'visibility', vis(overlay && fx.arrows.show));
@@ -408,7 +441,19 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setP(map, 'ta-ends', 'circle-color', fx.endpoints.color);
   setP(map, 'ta-ends', 'circle-stroke-color', fx.endpoints.stroke);
   setP(map, 'ta-ends', 'circle-stroke-width', 1.5);
+  setP(map, 'ta-ends', 'circle-opacity', ['-', 1, POI]);
+  setP(map, 'ta-ends', 'circle-stroke-opacity', ['-', 1, POI]);
   map.setFilter('ta-ends', withVis(null));
+
+  const wp = fx.walkPoi;
+  setL(map, 'ta-walkpoi', 'visibility', vis(overlay && wp.show));
+  setP(map, 'ta-walkpoi', 'circle-color', ['get', 'color']);
+  setP(map, 'ta-walkpoi', 'circle-radius', ['*', wp.size, ['+', 0.4, ['*', 0.6, POI]]]);
+  setP(map, 'ta-walkpoi', 'circle-opacity', ['*', POI, spec.routeOpacity]);
+  setP(map, 'ta-walkpoi', 'circle-stroke-color', cs.show ? cs.color : '#ffffff');
+  setP(map, 'ta-walkpoi', 'circle-stroke-width', cs.show ? Math.max(1, cs.width) : 1);
+  setP(map, 'ta-walkpoi', 'circle-stroke-opacity', POI);
+  map.setFilter('ta-walkpoi', withVis(null));
 
   const pl = spec.places, lb = pl.label;
   setL(map, 'ta-places', 'visibility', vis(overlay && pl.show));
@@ -516,10 +561,30 @@ export async function createAtlas(container, {
     } catch (_) { countriesLoaded = false; }
   }
 
+  // Walk → dot: set each walk's `poi` amount (0 line … 1 dot) from how big it is in this view.
+  let walkInfo = [];
+  const poiNow = new Map();
+  function updateWalkPoi(force = false) {
+    const wp = current.routeFx.walkPoi;
+    const box = map.getContainer(), diag = Math.hypot(box.clientWidth, box.clientHeight);
+    if (force) poiNow.clear();
+    const worldPx = WORLD_PX * 2 ** map.getZoom();
+    for (const w of walkInfo) {
+      const t = wp && wp.show && diag ? walkPoiAmount((w.unit * worldPx) / diag, wp.below) : 0;
+      const q = Math.round(t * 200) / 200;
+      if (poiNow.get(w.id) === q) continue;
+      poiNow.set(w.id, q);
+      for (const source of ['ta-routes', 'ta-ends', 'ta-walkpoi']) map.setFeatureState({ source, id: w.id }, { poi: q });
+    }
+  }
   function setRouteData() {
     map.getSource('ta-routes').setData(routeFeatures(routes, current));
     map.getSource('ta-ends').setData(endpointFeatures(routes, current));
+    const wpf = walkPoiFeatures(routes, current);
+    walkInfo = wpf.info;
+    map.getSource('ta-walkpoi').setData({ type: 'FeatureCollection', features: wpf.features });
     restoreStates();
+    updateWalkPoi(true);
   }
   const pr = pixelRatio || window.devicePixelRatio || 1;
   function setPlaceData() {
@@ -543,6 +608,9 @@ export async function createAtlas(container, {
   }
   orig = snapshotLabels(map);
   paintAll();
+  map.on('zoom', () => updateWalkPoi());
+  map.on('resize', () => updateWalkPoi());
+  map.on('load', () => updateWalkPoi(true));
 
   if (interactive) {
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
@@ -633,6 +701,7 @@ export async function createAtlas(container, {
     },
     // Resolves once every tile in view is drawn (exports, film frames).
     idle() {
+      updateWalkPoi(true);
       return new Promise((res) => {
         if (map.loaded() && map.areTilesLoaded() && !map.isMoving()) { map.once('render', () => (map.loaded() ? res() : map.once('idle', res))); map.triggerRepaint(); } else map.once('idle', res);
       });

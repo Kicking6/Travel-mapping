@@ -24,8 +24,9 @@ export async function render(el, params) {
     <aside class="ws-panel">
       <div class="ws-panel-head">
         <div class="filter-row"><select class="select" id="pick">${store.styles.map((s) => `<option value="${s.id}" ${s.id === id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
-          <button class="btn sm" id="dup" title="Copy this style">Copy</button></div>
-        <div class="row-between"><input class="input" id="name" value="${esc(row.name)}" style="font-weight:700"><span class="help" id="saved" style="white-space:nowrap;margin-left:8px"></span></div>
+          <button class="btn sm" id="dup" title="Keep this look as its own style, so you can carry on changing it here">Save as new…</button></div>
+        <div class="row-between"><input class="input" id="name" value="${esc(row.name)}" style="font-weight:700" aria-label="Style name"><span class="help" id="saved" style="white-space:nowrap;margin-left:8px">✓ Saved</span></div>
+        <p class="help" style="margin:6px 0 0">Changes to this style save automatically. To keep a different version, use <strong>Save as new…</strong> — it leaves this one as it is.</p>
       </div>
       <div class="ws-panel-body" style="padding:6px 16px 16px" id="controls"></div>
       <div class="ws-panel-foot"><button class="btn sm" id="preview">Print preview</button><span style="margin-left:auto"></span><button class="btn danger sm ghost" id="del">Delete</button></div>
@@ -44,7 +45,7 @@ export async function render(el, params) {
       const name = $('#name', el).value.trim() || row.name;
       await api('PUT', `/api/styles/${id}`, { name, spec });
       row.spec = structuredClone(spec); row.name = name;
-      $('#saved', el).textContent = 'Saved';
+      $('#saved', el).textContent = '✓ Saved';
     } catch (e) { $('#saved', el).textContent = ''; toast(e.message, 'err'); }
   }, 600);
   // Repaints coalesce to one per frame, so dragging a slider stays smooth.
@@ -69,10 +70,20 @@ export async function render(el, params) {
 
   $('#name', el).oninput = save;
   $('#pick', el).onchange = (e) => { location.hash = `#/styles/${e.target.value}`; };
+  // TA-1: "Save as new…" asks for a name first, instead of silently making "… copy 123".
   $('#dup', el).onclick = async () => {
+    const body = document.createElement('div');
+    body.innerHTML = `<div class="field"><label>Name for the new style</label><input class="input" name="newname" value="${esc(`${$('#name', el).value.trim() || row.name} 2`)}"></div>
+      <p class="help">The new style starts as a copy of how this one looks right now, and opens so you can keep going. “${esc(row.name)}” stays as it is.</p>`;
+    const input = $('input', body);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('.ds-modal-foot .btn.primary')?.click(); });
+    if (!(await modal({ title: 'Save as new style', body, actions: [{ label: 'Cancel', value: false }, { label: 'Save as new style', value: true, primary: true }] }))) return;
+    const name = input.value.trim();
+    if (!name) { toast('Give the new style a name', 'err'); return; }
     try {
-      const { data } = await api('POST', '/api/styles', { name: `${row.name} copy ${Date.now() % 1000}`, spec });
+      const { data } = await api('POST', '/api/styles', { name, spec });
       await loadBootstrap();
+      toast(`Saved “${name}” as a new style`);
       location.hash = `#/styles/${data.id}`;
     } catch (e) { toast(e.message, 'err'); }
   };

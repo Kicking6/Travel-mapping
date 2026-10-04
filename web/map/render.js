@@ -14,6 +14,7 @@
 import { createAtlas } from './atlas.js';
 import { TITLE_FONTS, DASHES, PLACE_KINDS, pinPx } from '../lib/style.js';
 import { kindOf, visiblePlaces, routeCoords } from './atlas.js';
+import { walkPoiAmount } from '../lib/geo.js';
 import { pinParts, mapPath } from '../lib/pins.js';
 import { typeById } from '../lib/types.js';
 import { pngWithDpi, jpegWithDpi, buildPdf, buildSvg, buildZip } from '../lib/outputs.js';
@@ -111,7 +112,7 @@ export async function renderMap(o) {
     const metersPerCss = (40075016.686 * Math.cos((c.lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom());
     const project = (ll) => { const p = m.project(ll); return [p.x * ratio, p.y * ratio]; };
     // Snapshot projected geometry before the map goes away (vector outputs).
-    const vector = o.wantVector ? projectVector(o, project, ratio) : null;
+    const vector = o.wantVector ? projectVector(o, project, ratio, W, H) : null;
     return { canvas, W, H, ratio, metersPerPx: metersPerCss / ratio, bearing: m.getBearing(), vector };
   } finally {
     if (atlas) atlas.destroy();
@@ -119,19 +120,36 @@ export async function renderMap(o) {
   }
 }
 
-function projectVector(o, project, ratio) {
-  const s = o.spec, paths = [], circles = [];
+function projectVector(o, project, ratio, W, H) {
+  const s = o.spec, paths = [], circles = [], dots = [];
   const thin = (pts) => { const out = []; let last = null; for (const p of pts) { if (!last || Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) > 0.6) { out.push(p); last = p; } } return out; };
   for (const r of o.routes) {
     const ts = s.routes[r.type] || s.routes.other;
     if (!ts || ts.show === false) continue;
     const pts = thin(routeCoords(r, s).map(project));
     const width = (r.width || ts.width) * ratio, dash = DASHES[ts.dash] ? DASHES[ts.dash].map((d) => Math.max(d, 0.1) * width) : null;
-    if (s.routeCasing.show && !dash) paths.push({ id: `casing-${r.id}`, pts, color: s.routeCasing.color, width: width + s.routeCasing.width * 2 * ratio, opacity: s.routeOpacity });
-    paths.push({ id: `route-${r.id}`, name: `${r.name}${r.date ? ' · ' + r.date : ''}`, pts, color: r.color || ts.color, width, dash, opacity: s.routeOpacity });
+    // A short walk fades into a dot, exactly as on screen (TA-4): same share-of-view maths.
+    const wp = s.routeFx.walkPoi;
+    let poi = 0;
+    if (r.type === 'walk' && wp && wp.show && r.coords.length > 1) {
+      let [w, so, e, n] = r.bbox || [180, 90, -180, -90];
+      if (!r.bbox) for (const [lo, la] of r.coords) { if (lo < w) w = lo; if (lo > e) e = lo; if (la < so) so = la; if (la > n) n = la; }
+      const [x0, y0] = project([w, so]), [x1, y1] = project([e, n]);
+      poi = walkPoiAmount(Math.hypot(x1 - x0, y1 - y0) / Math.hypot(W, H), wp.below);
+    }
+    const lineOp = s.routeOpacity * (1 - poi);
+    if (lineOp > 0.004) {
+      if (s.routeCasing.show && !dash) paths.push({ id: `casing-${r.id}`, pts, color: s.routeCasing.color, width: width + s.routeCasing.width * 2 * ratio, opacity: lineOp });
+      paths.push({ id: `route-${r.id}`, name: `${r.name}${r.date ? ' · ' + r.date : ''}`, pts, color: r.color || ts.color, width, dash, opacity: lineOp });
+    }
+    if (poi > 0.004) {
+      const [cx, cy] = project(r.coords[Math.floor(r.coords.length / 2)]), rad = wp.size * (0.4 + 0.6 * poi) * ratio, k = rad * 0.5523;
+      dots.push({ d: `M ${cx + rad} ${cy} C ${cx + rad} ${cy + k} ${cx + k} ${cy + rad} ${cx} ${cy + rad} C ${cx - k} ${cy + rad} ${cx - rad} ${cy + k} ${cx - rad} ${cy} C ${cx - rad} ${cy - k} ${cx - k} ${cy - rad} ${cx} ${cy - rad} C ${cx + k} ${cy - rad} ${cx + rad} ${cy - k} ${cx + rad} ${cy} Z`,
+        fill: r.color || ts.color, stroke: s.routeCasing.show ? s.routeCasing.color : '#ffffff', strokeWidth: Math.max(1, s.routeCasing.show ? s.routeCasing.width : 1) * ratio, opacity: Math.min(1, poi * s.routeOpacity), name: r.name });
+    }
   }
   // Places as real vector pins (shape + symbol), plus the line joining the stays.
-  const shapes = [];
+  const shapes = [...dots];
   const vis = visiblePlaces(o.places || [], s);
   if (s.places.connect.show && vis.length > 1) {
     const cn = s.places.connect;

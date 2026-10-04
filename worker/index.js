@@ -13,13 +13,10 @@ import {
 import { signInPage, codePage, notListedPage } from './pages.js';
 import { sendViaGmailSmtp } from './email-smtp.js';
 import { json, err, HttpError } from './api/shared.js';
-import * as routesApi from './api/routes.js';
-import * as tripApi from './api/trip.js';
-import * as mapsApi from './api/maps.js';
-import * as photosApi from './api/photos.js';
-import { defaultStyle } from '../web/lib/style.js';
+import { dispatch } from './api/index.js';
+import { handleMcp } from './mcp.js';
+import { handleOAuth as stravaOAuth } from './api/strava.js';
 
-const API_MODULES = [routesApi, tripApi, mapsApi, photosApi];
 
 async function form(request) {
   const f = await request.formData();
@@ -80,10 +77,6 @@ async function handleAuth(request, env, url) {
   return null;
 }
 
-async function ensureSeeded(env) {
-  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM map_styles').first();
-  if (!r.n) await env.DB.prepare("INSERT OR IGNORE INTO map_styles (name, spec, updated_by) VALUES ('Album light', ?, 'seed')").bind(JSON.stringify(defaultStyle())).run();
-}
 
 export default {
   async fetch(request, env) {
@@ -94,7 +87,16 @@ export default {
         if (r) return r;
       }
 
+      // The MCP connector authenticates with a personal access token, not a session.
+      if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return await handleMcp(request, env, url);
+
       const user = await identify(request, env);
+
+      if (url.pathname.startsWith('/strava/')) {
+        if (!user) return redirect('/');
+        const r = await stravaOAuth(request, env, url, user);
+        if (r) return r;
+      }
 
       if (url.pathname.startsWith('/api/')) {
         if (!user) return err('Signed out', 401);
@@ -103,12 +105,8 @@ export default {
           const origin = request.headers.get('Origin');
           if (origin && origin !== url.origin) return err('Cross-origin request refused', 403);
         }
-        if (url.pathname === '/api/bootstrap') await ensureSeeded(env);
-        for (const mod of API_MODULES) {
-          const res = await mod.handle(request, env, url, user);
-          if (res !== undefined) return res;
-        }
-        return err('Not found', 404);
+        const res = await dispatch(request, env, url, user);
+        return res !== undefined ? res : err('Not found', 404);
       }
 
       if (!user) {

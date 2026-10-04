@@ -81,3 +81,9 @@ test('SkiTracks timestamp names give a date, not "59 44"', () => {
   assert.equal(r.date, '2025-01-17');
   assert.equal(r.name, null);
 });
+
+test('"September 22, 2024 Glacier National Park, USA Avalanche Lake" — comma after the day', () => {
+  const r = p('September 22, 2024 Glacier National Park, USA Avalanche Lake.gpx');
+  assert.equal(r.date, '2024-09-22');
+  assert.match(r.name, /^Glacier National Park/);
+});

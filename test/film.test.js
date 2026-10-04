@@ -64,3 +64,14 @@ test('sliceLine cuts by distance and ends exactly at the end', () => {
 test('empty trip → zero-length film, no crash', () => {
   assert.equal(buildTimeline([], []).duration, 0);
 });
+
+test('the camera never jumps: frame-to-frame moves stay small, even across a long glide', () => {
+  const tl = buildTimeline(routes, [], { W: 1920, H: 1080, seconds: 40, group: 'day' });
+  const fps = 30;
+  let worst = 0;
+  for (let i = 1; i < tl.duration * fps; i++) {
+    const a = tl.frame((i - 1) / fps).camera, b = tl.frame(i / fps).camera;
+    worst = Math.max(worst, Math.abs(b.zoom - a.zoom));
+  }
+  assert.ok(worst < 0.12, `largest zoom step per frame ${worst.toFixed(3)}`);
+});

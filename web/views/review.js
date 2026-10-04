@@ -6,11 +6,13 @@ import { store, api, loadRoutes, needsReview, esc, $, toast, fmtDate, fmtKm } fr
 import { createAtlas } from '../map/atlas.js';
 import { resolveStyle } from '../lib/style.js';
 import { typeById, TYPES } from '../lib/types.js';
-import { haversineKm, unionBbox, bboxIntersects } from '../lib/geo.js';
+import { haversineKm, unionBbox, bboxIntersects, greatCircle } from '../lib/geo.js';
+import { findMissingTravel } from '../lib/travel.js';
 import { loadCountries, countriesFor } from '../lib/countries.js';
 import { routeEditor } from './route-editor.js';
 
 const QUEUES = [
+  { id: 'travel', label: 'Missing travel', test: () => false },
   { id: 'nodate', label: 'No date', test: (r) => !r.date },
   { id: 'guess', label: 'Year guessed', test: (r) => r.date_source === 'suggested' },
   { id: 'dup', label: 'Possible duplicates', test: (r) => r.review && r.review.possibleDuplicateName },
@@ -51,13 +53,39 @@ export async function render(el, params) {
   const atlas = await createAtlas($('#map', el), { spec: resolveStyle(store.styles[0].spec) });
   const drawer = $('#drawer', el);
 
-  function counts() { return Object.fromEntries(QUEUES.map((q) => [q.id, store.routes.filter((r) => !r.hidden && q.test(r)).length])); }
+  // Missing travel: jumps the trip has no route for (usually flights), with airport suggestions.
+  let gaps = [];
+  const DISMISS = 'ta-dismissed-gaps';
+  const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem(DISMISS) || '[]')); } catch (_) { return new Set(); } };
+  const gapKey = (g) => `${g.d0}|${g.d1}|${Math.round(g.km / 10)}`;
+  async function computeGaps() {
+    const airports = await fetch('/data/airports.json').then((r) => r.json());
+    const d = dismissed();
+    gaps = findMissingTravel(store.routes, store.places, { minKm: 400, airports }).filter((g) => !d.has(gapKey(g)))
+      .sort((a, b) => a.d0.localeCompare(b.d0));
+    draw();
+  }
+  computeGaps();
+
+  function counts() { return Object.fromEntries(QUEUES.map((q) => [q.id, q.id === 'travel' ? gaps.length : store.routes.filter((r) => !r.hidden && q.test(r)).length])); }
+
+  function drawTravel() {
+    $('#bulk', el).innerHTML = '<p class="help">Moves of 400 km+ with nothing recorded in between — usually a flight. Check the suggested airports, then add it (layovers: edit the line on the next screen).</p>';
+    $('#list', el).innerHTML = gaps.length ? `<table class="rt"><colgroup><col><col style="width:128px"></colgroup><tbody>${gaps.map((g, i) => `<tr class="row" data-gap="${i}">
+      <td title="${esc(g.from)} → ${esc(g.to)}"><strong>${esc(fmtDate(g.d0))}${g.d1 !== g.d0 ? ' – ' + esc(fmtDate(g.d1)) : ''}</strong> · ${g.km.toLocaleString()} km
+        <div class="help">${esc(g.from)}</div><div class="help">→ ${esc(g.to)}</div></td>
+      <td>${g.suggest ? `<button class="btn sm primary" data-addflight="${i}" title="${esc(g.suggest.fromName)} → ${esc(g.suggest.toName)}">✈ ${g.suggest.from} → ${g.suggest.to}</button>` : ''}<button class="btn ghost sm" data-dismiss="${i}" title="Not a missing flight — hide it">Not missing</button></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty"><h3>Nothing missing</h3><p>Every big move has a route.</p></div>';
+    atlas.setRoutes(store.routes.filter((r) => !r.hidden));
+    atlas.setDimmed([]);
+  }
 
   function draw() {
     const c = counts();
     if (!queue || !c[queue]) queue = (QUEUES.find((q) => c[q.id]) || QUEUES[0]).id;
     $('#total', el).textContent = `${store.routes.filter((r) => !r.hidden && needsReview(r)).length} routes`;
     $('#queues', el).innerHTML = QUEUES.map((q) => `<button class="chip filter-chip ${q.id === queue ? 'on' : ''}" data-q="${q.id}">${esc(q.label)} ${c[q.id]}</button>`).join('');
+    if (queue === 'travel') { drawTravel(); return; }
     const q = QUEUES.find((x) => x.id === queue);
     const items = store.routes.filter((r) => !r.hidden && q.test(r));
     const bulk = $('#bulk', el);
@@ -125,6 +153,12 @@ export async function render(el, params) {
   root.addEventListener('click', async (e) => {
     const q = e.target.closest('[data-q]');
     if (q) { queue = q.dataset.q; selected.clear(); drawer.hidden = true; history.replaceState(null, '', `#/review/${queue}`); draw(); return; }
+    const add = e.target.closest('[data-addflight]');
+    if (add) { const g = gaps[+add.dataset.addflight]; location.hash = `#/import?flight=${encodeURIComponent(`${g.d1} ${g.suggest.from} ${g.suggest.to}`)}`; return; }
+    const dis = e.target.closest('[data-dismiss]');
+    if (dis) { const d = dismissed(); d.add(gapKey(gaps[+dis.dataset.dismiss])); try { localStorage.setItem(DISMISS, JSON.stringify([...d])); } catch (_) { /* private mode */ } gaps.splice(+dis.dataset.dismiss, 1); draw(); return; }
+    const gr = e.target.closest('[data-gap]');
+    if (gr) { const g = gaps[+gr.dataset.gap]; atlas.setActive(greatCircle(g.a, g.b, 64), { color: '#b3261e', width: 3, head: 5 }); atlas.fit([Math.min(g.a[0], g.b[0]), Math.min(g.a[1], g.b[1]), Math.max(g.a[0], g.b[0]), Math.max(g.a[1], g.b[1])]); return; }
     const use = e.target.closest('[data-use]');
     if (use) {
       e.stopPropagation();

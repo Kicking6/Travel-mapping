@@ -4,8 +4,9 @@
 // simplification, hashing, country lookup. The Worker receives small,
 // already-simplified records in batches, de-duplicates and stores them, and
 // (optionally) keeps each original file in R2 so nothing is ever lost.
-import { store, api, loadRoutes, esc, $, toast, fmtKm, modal } from '../app.js';
-import { routesFromGpx, routesFromWktCsv, placesFromCsv, flightRoute } from '../lib/gpx.js';
+import { store, api, loadRoutes, esc, $, toast, fmtKm, modal, debounce, fmtDate } from '../app.js';
+import { routesFromGpx, routesFromWktCsv, placesFromCsv } from '../lib/gpx.js';
+import { parseFlightLines, flightLegs } from '../lib/travel.js';
 import { sameRoute, decodePolyline } from '../lib/geo.js';
 import { loadCountries, countriesFor } from '../lib/countries.js';
 import { typeById, TYPES } from '../lib/types.js';
@@ -54,12 +55,17 @@ export async function render(el) {
     </div>
     <div id="work" style="margin-top:18px"></div>
     <div class="form-grid" style="margin-top:22px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
-      <div class="card"><div class="card-head"><h3>Add a flight</h3></div><form class="card-body stack" id="flightForm" autocomplete="off">
-        <div class="field-row"><div class="field"><label>From (airport code)</label><input class="input" name="from" placeholder="AKL" maxlength="3" required style="text-transform:uppercase"></div>
-        <div class="field"><label>To</label><input class="input" name="to" placeholder="LAX" maxlength="3" required style="text-transform:uppercase"></div></div>
-        <div class="field"><label>Date</label><input class="input" type="date" name="date"></div>
-        <div class="help" id="flightHelp">Drawn as a great-circle arc, dashed on the map.</div>
-        <button class="btn primary" type="submit">Add flight</button></form></div>
+      <div class="card"><div class="card-head"><h3>Flights (with layovers)</h3></div><form class="card-body stack" id="flightForm" autocomplete="off">
+        <p class="help">One flight per line — date (optional), then the airports in order. Layovers become one dashed leg each.</p>
+        <textarea class="input mono" name="lines" rows="5" placeholder="2024-07-23 AKL LAX JFK  Air NZ&#10;2024-12-18 LIM SCL PUQ  NYBZTX&#10;26/02/2025 ZRH GOT"></textarea>
+        <div class="filter-row"><input class="input sm" id="apSearch" placeholder="Find a code — city or airport"><span class="help" id="apHits"></span></div>
+        <div class="help" id="flightHelp"></div>
+        <div class="toolbar"><button class="btn primary" type="submit">Add flights</button><a class="btn ghost sm" href="#/review/travel">Find missing flights</a></div></form></div>
+      <div class="card"><div class="card-head"><h3>Strava</h3><span class="help" id="stravaState"></span></div><div class="card-body stack" id="strava"><span class="spinner"></span></div></div>
+      <div class="card"><div class="card-head"><h3>AllTrails, Garmin, Komoot…</h3></div><div class="card-body stack">
+        <p class="help">These don't offer an open API for personal apps (AllTrails has none; Garmin and Komoot require a business partnership), so there's no “connect” button. Each one exports GPX: AllTrails → a recording → ⋯ → Download route / Export GPX; Garmin Connect → activity → ⚙ → Export to GPX; Komoot → tour → ⋯ → Download GPX. Drop the files above — dates, duplicates and countries are handled the same way.</p>
+        <a class="btn" href="#/draw">Or draw a route by hand</a>
+      </div></div>
       <div class="card"><div class="card-head"><h3>Places (accommodation, campsites)</h3></div><div class="card-body stack">
         <p class="help">A CSV with columns <span class="mono">name, lat, lon, kind, date, notes</span>. Kind is tent, hut, hotel, hostel, airbnb, friends, sight — or anything else, which gets its own colour in Map styles.</p>
         <label class="btn">Choose places CSV<input type="file" id="pickPlaces" accept=".csv" hidden></label>
@@ -198,29 +204,39 @@ export async function render(el) {
       <div class="toolbar"><a class="btn primary" href="#/map">See them on the map</a><a class="btn" href="#/review">Review what needs a look</a></div></div>`;
   }
 
-  // Flights
-  let airports = null;
+  // Flights — itineraries with layovers, one per line.
   const ff = $('#flightForm', el);
+  const pre = new URLSearchParams(location.hash.split('?')[1] || '').get('flight');
+  if (pre) { ff.lines.value = pre; ff.lines.focus(); }
+  $('#apSearch', el).addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    if (q.length < 3) { $('#apHits', el).textContent = ''; return; }
+    const ap = await airportList();
+    const hits = Object.entries(ap).filter(([k, v]) => k.toLowerCase() === q || `${v[2]} ${v[3]}`.toLowerCase().includes(q)).sort((a, b) => (b[1][5] || 1) - (a[1][5] || 1)).slice(0, 5);
+    $('#apHits', el).innerHTML = hits.map(([k, v]) => `<strong>${k}</strong> ${esc(v[3] || v[2])}`).join(' · ') || 'No match';
+  }, 200));
   ff.onsubmit = async (e) => {
     e.preventDefault();
-    airports = airports || await fetch('/data/airports.json').then((r) => r.json());
-    const code = (s) => s.trim().toUpperCase();
-    const a = airports[code(ff.from.value)], b = airports[code(ff.to.value)];
-    if (!a || !b) { $('#flightHelp', el).innerHTML = `<span class="status-err">Unknown airport code: ${esc(!a ? code(ff.from.value) : code(ff.to.value))}</span>`; return; }
-    const r = flightRoute({ code: code(ff.from.value), coord: [a[0], a[1]] }, { code: code(ff.to.value), coord: [b[0], b[1]] }, { date: ff.date.value || null, name: `${a[3] || code(ff.from.value)} to ${b[3] || code(ff.to.value)}` });
-    // Same country names as every other route (Natural Earth), not the airport list's ("Usa").
+    const help = $('#flightHelp', el);
+    const { flights, errors } = parseFlightLines(ff.lines.value);
+    const ap = await airportList();
+    const routes = [];
+    for (const f of flights) { try { routes.push(...flightLegs(f.codes, ap, f)); } catch (err) { errors.push(`${f.line}: ${err.message}`); } }
+    if (!routes.length) { help.innerHTML = `<span class="status-err">${esc(errors.join(' · ') || 'Nothing to add')}</span>`; return; }
     try {
       const countries = await loadCountries();
-      r.country = countriesFor(countries, [[a[0], a[1]], [b[0], b[1]]]);
-    } catch (_) { r.country = null; }
+      for (const r of routes) { const c = decodePolyline(r.geom_lo || r.geom); r.country = countriesFor(countries, [c[0], c[c.length - 1]]); }
+    } catch (_) { /* countries are optional */ }
     try {
-      await api('POST', '/api/routes/import', { routes: [r] });
+      const { data } = await api('POST', '/api/routes/import', { routes });
       await loadRoutes(true);
-      toast(`Added ${r.name}`);
-      ff.reset();
-      $('#flightHelp', el).textContent = 'Drawn as a great-circle arc, dashed on the map.';
+      help.innerHTML = `<span class="status-new">Added ${data.inserted.length} leg${data.inserted.length === 1 ? '' : 's'} from ${flights.length} flight${flights.length === 1 ? '' : 's'}.</span>${data.skipped.length ? ` ${data.skipped.length} already there.` : ''}${errors.length ? `<br><span class="status-err">${esc(errors.join(' · '))}</span>` : ''}`;
+      ff.lines.value = errors.length ? ff.lines.value : '';
     } catch (err) { toast(err.message, 'err'); }
   };
+
+  // Strava
+  stravaCard($('#strava', el), $('#stravaState', el));
 
   // Places
   $('#pickPlaces', el).onchange = async (e) => {
@@ -240,4 +256,65 @@ export async function render(el) {
       render(el);
     } catch (err) { toast(err.message, 'err'); }
   };
+}
+
+let airportsP = null;
+const airportList = () => (airportsP = airportsP || fetch('/data/airports.json').then((r) => r.json()));
+
+async function stravaCard(host, stateEl) {
+  let st;
+  try { st = (await api('GET', '/api/strava')).data; } catch (e) { host.innerHTML = `<p class="help">${esc(e.message)}</p>`; return; }
+  if (!st.configured) {
+    host.innerHTML = `<p class="help">Import walks, hikes, rides and ski days straight from Strava at full GPS detail. One-time setup (Rory, 3 minutes):</p>
+      <ol class="help" style="margin:0;padding-left:18px"><li>At <span class="mono">strava.com/settings/api</span> create an application; set <em>Authorization Callback Domain</em> to <span class="mono">${esc(st.callbackDomain)}</span>.</li>
+      <li>In Terminal, in the Travel-mapping folder: <span class="mono">npx wrangler secret put STRAVA_CLIENT_ID</span>, then <span class="mono">STRAVA_CLIENT_SECRET</span>.</li></ol>
+      <p class="help">Then each of you clicks “Connect Strava” here.</p>`;
+    return;
+  }
+  if (!st.connected) {
+    if (/strava=denied/.test(location.hash)) host.insertAdjacentHTML('beforeend', '<div class="notice warn">Strava wasn\'t connected.</div>');
+    host.innerHTML += `<p class="help">Connect your Strava account to pick activities to import. Read-only — Trip Atlas never changes anything on Strava.</p><a class="btn primary" href="/strava/connect">Connect Strava</a>`;
+    return;
+  }
+  stateEl.textContent = `Connected as ${st.athlete || 'you'}`;
+  host.innerHTML = `<div class="field-row"><div class="field"><label>From</label><input class="input sm" type="date" id="sFrom" value="${esc(store.trip.trip_start || '')}"></div><div class="field"><label>To</label><input class="input sm" type="date" id="sTo"></div></div>
+    <div class="toolbar"><button class="btn sm" id="sLoad">Show activities</button><button class="btn ghost sm" id="sOff">Disconnect</button></div><div id="sList"></div>`;
+  let page = 1, acts = [];
+  const load = async (more) => {
+    page = more ? page + 1 : 1;
+    const q = new URLSearchParams({ page, per_page: 60 });
+    if ($('#sFrom', host).value) q.set('after', $('#sFrom', host).value);
+    if ($('#sTo', host).value) q.set('before', $('#sTo', host).value);
+    $('#sList', host).innerHTML = '<span class="spinner"></span>';
+    try {
+      const { data } = await api('GET', `/api/strava/activities?${q}`);
+      acts = more ? acts.concat(data.activities) : data.activities;
+      $('#sList', host).innerHTML = acts.length ? `<div class="preview-wrap" style="max-height:320px"><table class="rt"><colgroup><col style="width:28px"><col><col style="width:84px"><col style="width:56px"></colgroup><tbody>
+        ${acts.map((a, i) => `<tr><td><input type="checkbox" data-i="${i}" ${a.imported || !a.hasMap ? 'disabled' : ''} ${!a.imported && a.hasMap ? 'checked' : ''}></td><td title="${esc(a.sport)}">${esc(a.name)}<div class="help">${esc(a.sport)}${a.imported ? ' · already here' : !a.hasMap ? ' · no GPS' : ''}</div></td><td>${esc(fmtDate(a.date))}</td><td class="num">${a.km}</td></tr>`).join('')}
+        </tbody></table></div><div class="toolbar" style="margin-top:8px">${data.activities.length === 60 ? '<button class="btn ghost sm" id="sMore">Load more</button>' : ''}<button class="btn primary sm" id="sImport">Import selected</button></div>` : '<p class="help">No activities in those dates.</p>';
+      const moreBtn = $('#sMore', host); if (moreBtn) moreBtn.onclick = () => load(true);
+      $('#sImport', host) && ($('#sImport', host).onclick = importSel);
+    } catch (e) { $('#sList', host).innerHTML = `<p class="status-err">${esc(e.message)}</p>`; }
+  };
+  const importSel = async () => {
+    const ids = [...host.querySelectorAll('[data-i]:checked')].map((c) => acts[+c.dataset.i].id);
+    if (!ids.length) return;
+    const btn = $('#sImport', host); btn.disabled = true;
+    let added = 0, skipped = 0, failed = 0;
+    let countries = null; try { countries = await loadCountries(); } catch (_) { /* optional */ }
+    for (let i = 0; i < ids.length; i += 15) {
+      btn.textContent = `Importing ${Math.min(i + 15, ids.length)} of ${ids.length}…`;
+      try {
+        const { data } = await api('POST', '/api/strava/import', { ids: ids.slice(i, i + 15) });
+        failed += data.failed.length;
+        if (countries) for (const r of data.routes) r.country = countriesFor(countries, decodePolyline(r.geom_lo || r.geom));
+        if (data.routes.length) { const res = (await api('POST', '/api/routes/import', { routes: data.routes })).data; added += res.inserted.length; skipped += res.skipped.length; }
+      } catch (e) { toast(e.message, 'err'); break; }
+    }
+    await loadRoutes(true);
+    toast(`Imported ${added} from Strava${skipped ? `, ${skipped} already here` : ''}${failed ? `, ${failed} without GPS` : ''}`);
+    load();
+  };
+  $('#sLoad', host).onclick = () => load();
+  $('#sOff', host).onclick = async () => { await api('DELETE', '/api/strava'); stravaCard(host, stateEl); stateEl.textContent = ''; };
 }

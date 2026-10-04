@@ -13,6 +13,8 @@
 // north arrow) → encode (PNG/JPEG/WebP/PDF/SVG/ZIP of layers).
 import { createAtlas } from './atlas.js';
 import { TITLE_FONTS, DASHES, PLACE_KINDS } from '../lib/style.js';
+import { kindOf, visiblePlaces } from './atlas.js';
+import { pinParts, mapPath } from '../lib/pins.js';
 import { typeById } from '../lib/types.js';
 import { pngWithDpi, jpegWithDpi, buildPdf, buildSvg, buildZip } from '../lib/outputs.js';
 
@@ -58,6 +60,7 @@ function withTimeout(p, ms, what) {
 }
 
 const font = (id) => (TITLE_FONTS.find((f) => f.id === id) || TITLE_FONTS[0]).css;
+const SHAPE_BOTTOM = new Set(['pin']);
 
 /**
  * Render the map alone. Returns { canvas, project(lngLat) → [x, y] output px,
@@ -95,6 +98,7 @@ export async function renderMap(o) {
       atlas.map.fitBounds([[o.bounds[0], o.bounds[1]], [o.bounds[2], o.bounds[3]]], { padding: bleedCss, duration: 0, bearing: (o.camera && o.camera.bearing) || 0 });
     }
     await atlas.countriesReady();
+    await atlas.landReady();
     o.onStage && o.onStage('Drawing tiles at full resolution…');
     await withTimeout(atlas.idle(), 180000, 'Drawing the map');
 
@@ -126,13 +130,21 @@ function projectVector(o, project, ratio) {
     if (s.routeCasing.show && !dash) paths.push({ id: `casing-${r.id}`, pts, color: s.routeCasing.color, width: width + s.routeCasing.width * 2 * ratio, opacity: s.routeOpacity });
     paths.push({ id: `route-${r.id}`, name: `${r.name}${r.date ? ' · ' + r.date : ''}`, pts, color: r.color || ts.color, width, dash, opacity: s.routeOpacity });
   }
-  if (s.places.show) for (const p of o.places || []) {
-    const k = s.places.kinds[p.kind] || s.places.kinds.other;
-    if (!k || k.show === false || p.hidden) continue;
-    const [x, y] = project([p.lon, p.lat]);
-    circles.push({ x, y, r: k.size * ratio, color: k.color, stroke: s.places.stroke, strokeWidth: s.places.strokeWidth * ratio, name: p.name });
+  // Places as real vector pins (shape + symbol), plus the line joining the stays.
+  const shapes = [];
+  const vis = visiblePlaces(o.places || [], s);
+  if (s.places.connect.show && vis.length > 1) {
+    const cn = s.places.connect;
+    paths.push({ id: 'stays-line', pts: vis.filter((p) => p.date).map((p) => project([p.lon, p.lat])), color: cn.color, width: cn.width * ratio, dash: DASHES[cn.dash] ? DASHES[cn.dash].map((d) => Math.max(d, 0.1) * cn.width * ratio) : null, opacity: cn.opacity });
   }
-  return { paths, circles };
+  vis.forEach((p) => {
+    const k = kindOf(s, p.kind);
+    const [x, y] = project([p.lon, p.lat]);
+    const parts = pinParts(k, { x, y, px: k.size * 2.6 * ratio });
+    shapes.push({ d: parts.shape, fill: k.color, stroke: s.places.strokeWidth > 0 ? s.places.stroke : null, strokeWidth: s.places.strokeWidth * ratio, opacity: s.places.opacity, name: p.name });
+    if (parts.glyph) shapes.push({ d: parts.glyph, fill: k.glyphColor || '#ffffff', opacity: s.places.opacity });
+  });
+  return { paths, circles, shapes };
 }
 
 // ── Finishing ─────────────────────────────────────────────────────────────
@@ -228,7 +240,7 @@ function drawDecor(ctx, W, H, o, info, unit, bleedPx) {
     const kinds = s.places.show ? [...new Set((o.places || []).map((p) => p.kind))].filter((k) => s.places.kinds[k] && s.places.kinds[k].show !== false) : [];
     const fs = 11 * unit, row = fs * 1.7, sw = 22 * unit;
     ctx.font = `400 ${fs}px ${font(dc.titleFont)}`;
-    const items = [...types.map((t) => ({ kind: 'line', label: typeById(t).label, color: s.routes[t].color, dash: s.routes[t].dash })), ...kinds.map((k) => ({ kind: 'dot', label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label, color: s.places.kinds[k].color }))];
+    const items = [...types.map((t) => ({ kind: 'line', label: typeById(t).label, color: s.routes[t].color, dash: s.routes[t].dash })), ...kinds.map((k) => ({ kind: 'pin', label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label, pin: s.places.kinds[k] }))];
     const w = sw + 8 * unit + Math.max(0, ...items.map((i) => ctx.measureText(i.label).width)), h = items.length * row;
     const [x, y] = corner(dc.legend.position, w, h);
     plate(x, y, w, h);
@@ -239,7 +251,14 @@ function drawDecor(ctx, W, H, o, info, unit, bleedPx) {
         ctx.strokeStyle = it.color; ctx.lineWidth = 3 * unit; ctx.lineCap = 'round';
         if (DASHES[it.dash]) ctx.setLineDash(DASHES[it.dash].map((d) => Math.max(d, 0.4) * 3 * unit));
         ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x + sw, cy); ctx.stroke();
-      } else { ctx.fillStyle = it.color; ctx.beginPath(); ctx.arc(x + sw / 2, cy, 4 * unit, 0, Math.PI * 2); ctx.fill(); }
+      } else {
+        const px = Math.min(row * 1.05, it.pin.size * 2.6 * unit);
+        const parts = pinParts(it.pin, { x: x + sw / 2, y: cy + ((SHAPE_BOTTOM.has(it.pin.shape) ? px / 2 : 0)), px });
+        const shape = new Path2D(parts.shape);
+        ctx.globalAlpha = s.places.opacity; ctx.fillStyle = it.pin.color; ctx.fill(shape);
+        if (s.places.strokeWidth > 0) { ctx.lineWidth = s.places.strokeWidth * unit * 0.8; ctx.strokeStyle = s.places.stroke; ctx.stroke(shape); }
+        if (parts.glyph) { ctx.fillStyle = it.pin.glyphColor || '#ffffff'; ctx.fill(new Path2D(parts.glyph), 'evenodd'); }
+      }
       ctx.restore();
       text(it.label, x + sw + 8 * unit, cy + fs * 0.35, fs, 400);
     });
@@ -351,7 +370,8 @@ export async function exportPage(o) {
     } else image = { jpeg: await bytes(await toBlob(canvas, 'image/jpeg', o.quality ?? 0.95)) };
     const toMm = (pts) => pts.map(([x, y]) => [x / pxPerMm, y / pxPerMm]);
     const paths = vector && info.vector ? info.vector.paths.map((p) => ({ ...p, pts: toMm(p.pts), width: p.width / pxPerMm, dash: p.dash && p.dash.map((d) => d / pxPerMm) })) : [];
-    const pdf = buildPdf({ trimW: o.paper.w, trimH: o.paper.h, bleed, image, paths, marks: o.cropMarks !== false, title: o.title || 'Trip Atlas map' });
+    const shapes = vector && info.vector ? info.vector.shapes.map((x) => ({ ...x, d: mapPath(x.d, ([a, b]) => [a / pxPerMm, b / pxPerMm]), strokeWidth: (x.strokeWidth || 0) / pxPerMm })) : [];
+    const pdf = buildPdf({ trimW: o.paper.w, trimH: o.paper.h, bleed, image, paths, shapes, marks: o.cropMarks !== false, title: o.title || 'Trip Atlas map' });
     return { blob: new Blob([pdf], { type: fmt.mime }), ext: fmt.ext, px: [W, H] };
   }
 
@@ -368,6 +388,7 @@ export async function exportPage(o) {
       w: o.paper.w, h: o.paper.h, image: dataUrl,
       paths: info.vector.paths.map((p) => ({ ...p, pts: toMm(p.pts), width: p.width / pxPerMm, dash: p.dash && p.dash.map((d) => d / pxPerMm) })),
       circles: info.vector.circles.map((c) => ({ ...c, x: c.x / pxPerMm, y: c.y / pxPerMm, r: c.r / pxPerMm, strokeWidth: c.strokeWidth / pxPerMm })),
+      shapes: info.vector.shapes.map((x) => ({ ...x, d: mapPath(x.d, ([a, b]) => [a / pxPerMm, b / pxPerMm]), strokeWidth: (x.strokeWidth || 0) / pxPerMm })),
     });
     return { blob: new Blob([svg], { type: fmt.mime }), ext: fmt.ext, px: [W, H] };
   }

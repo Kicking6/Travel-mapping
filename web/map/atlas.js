@@ -10,18 +10,44 @@
 //  - selection / hover / dim are feature-state.
 import { BASEMAPS, PLACE_KINDS, DASHES, rampColor } from '../lib/style.js';
 import { loadCountries } from '../lib/countries.js';
+import { SHAPES, pinParts } from '../lib/pins.js';
+import { simplify } from '../lib/geo.js';
 import { scaleSize } from './scale-size.js';
 
 const maplibregl = window.maplibregl;
 const styleCache = new Map();
 const DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'; // keyless, global, incl. bathymetry
 
-async function fetchBasemap(id) {
+const tileJsonCache = new Map();
+// baseLevel > 0 caps the zoom the base map's tiles are taken from, so its
+// shapes stay as generalised as that zoom draws them (a coarser, cleaner map).
+// The TileJSON is inlined because a `url` source's own maxzoom would win.
+// Coastline detail = which zoom the water is taken from. OpenMapTiles water
+// is Natural Earth 1:110m at z0–1, 1:50m at z2–4, 1:10m at z5–7 and
+// OpenStreetMap from z8, so capping the water's tiles at those zooms gives
+// the same coast drawn at ~30 km, ~5 km or ~1 km — through the normal tile
+// pipeline (wide margins when overzoomed, so no seams).
+export const COAST_LEVEL = { osm: 0, '10m': 8, '50m': 6, '110m': 4 }; // measured on OpenFreeMap tiles, 2026-10-04
+async function fetchBasemap(id, baseLevel = 0, coastline = 'osm') {
   const bm = BASEMAPS.find((b) => b.id === id) || BASEMAPS[0];
   if (!styleCache.has(bm.id)) styleCache.set(bm.id, fetch(bm.url).then((r) => { if (!r.ok) throw new Error('Basemap failed to load'); return r.json(); }));
-  return structuredClone(await styleCache.get(bm.id));
+  const style = structuredClone(await styleCache.get(bm.id));
+  const coastLevel = COAST_LEVEL[coastline] || 0;
+  for (const [name, src] of Object.entries({ ...style.sources })) {
+    if (src.type !== 'vector' || !src.url || (!baseLevel && !coastLevel)) continue;
+    if (!tileJsonCache.has(src.url)) tileJsonCache.set(src.url, fetch(src.url).then((r) => r.json()));
+    const tj = await tileJsonCache.get(src.url);
+    const inline = (max) => ({ type: 'vector', tiles: tj.tiles, minzoom: tj.minzoom || 0, maxzoom: Math.min(max, tj.maxzoom || 14), attribution: tj.attribution });
+    if (baseLevel > 0) style.sources[name] = inline(baseLevel);
+    if (coastLevel > 0) {
+      style.sources['ta-coastsrc'] = inline(baseLevel > 0 ? Math.min(coastLevel, baseLevel) : coastLevel);
+      for (const l of style.layers) if (l.source === name && l['source-layer'] === 'water') l.source = 'ta-coastsrc';
+    }
+  }
+  return style;
 }
 export function preloadBasemap(id) { fetchBasemap(id).catch(() => {}); }
+const baseKey = (spec) => `${spec.basemap}|${(spec.detail && spec.detail.baseLevel) || 0}|${(spec.detail && spec.detail.coastline) || 'osm'}`;
 
 // Lowest admin_level a boundary layer draws (walks its filter). Positron's
 // "boundary_3" is states (3–6), "boundary_2" countries.
@@ -137,7 +163,10 @@ function applyBase(map, spec, orig, mode) {
 // typography scale multiplies the original, never its own last result.
 function snapshotLabels(map) {
   const out = new Map();
-  for (const l of map.getStyle().layers) if (l.type === 'symbol' && l.layout && l.layout['text-size'] !== undefined) out.set(l.id, { size: l.layout['text-size'] });
+  for (const l of map.getStyle().layers) {
+    if (l.type === 'symbol' && l.layout && l.layout['text-size'] !== undefined) out.set(l.id, { size: l.layout['text-size'] });
+    if (l['source-layer'] === 'water' && l.type === 'fill') out.set(l.id, { filter: l.filter === undefined ? null : l.filter });
+  }
   return out;
 }
 
@@ -148,8 +177,16 @@ function tripSpan(routes) {
   return a ? [Date.parse(a), Math.max(Date.parse(b), Date.parse(a) + 1)] : null;
 }
 
+const simplified = new Map(); // `${id}:${tol}` → coords
 function routeFeatures(routes, spec) {
   const g = spec.routeFx.gradient, span = g.mode === 'trip' ? tripSpan(routes) : null;
+  const tol = (spec.detail && spec.detail.routeSimplify) || 0;
+  const line = (r) => {
+    if (!tol || r.coords.length < 3) return r.coords;
+    const k = `${r.id}:${tol}:${r.coords.length}`;
+    if (!simplified.has(k)) { if (simplified.size > 5000) simplified.clear(); simplified.set(k, simplify(r.coords, tol)); }
+    return simplified.get(k);
+  };
   const feats = [];
   for (const r of routes) {
     const ts = spec.routes[r.type] || spec.routes.other || { color: '#666', width: 2, show: true };
@@ -159,7 +196,7 @@ function routeFeatures(routes, spec) {
     feats.push({
       type: 'Feature', id: r.id,
       properties: { id: r.id, name: r.name, date: r.date || '', color, width: r.width || ts.width, dash: DASHES[ts.dash] !== undefined ? ts.dash : 'solid' },
-      geometry: { type: 'LineString', coordinates: r.coords },
+      geometry: { type: 'LineString', coordinates: line(r) },
     });
   }
   return { type: 'FeatureCollection', features: feats };
@@ -176,15 +213,78 @@ function endpointFeatures(routes, spec) {
   return { type: 'FeatureCollection', features: feats };
 }
 
+export const kindOf = (spec, kind) => spec.places.kinds[kind] || spec.places.kinds.other || PLACE_KINDS[PLACE_KINDS.length - 1];
+export function visiblePlaces(places, spec) {
+  if (!spec.places.show) return [];
+  return places.filter((p) => !p.hidden && kindOf(spec, p.kind).show !== false)
+    .slice().sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')) || a.id - b.id);
+}
+function labelText(p, n, field) {
+  const nights = p.nights > 1 ? `${p.nights} nights` : p.nights === 1 ? '1 night' : '';
+  const day = p.date ? new Date(p.date + 'T00:00:00Z').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+  switch (field) {
+    case 'name-nights': return [p.name, nights].filter(Boolean).join(' · ');
+    case 'name-date': return [p.name, day].filter(Boolean).join(' · ');
+    case 'date': return day;
+    case 'nights': return nights;
+    case 'number': return String(n);
+    case 'number-name': return `${n}. ${p.name || ''}`;
+    default: return p.name || '';
+  }
+}
 function placeFeatures(places, spec) {
-  const kinds = spec.places.kinds;
+  const list = visiblePlaces(places, spec);
   return {
     type: 'FeatureCollection',
-    features: (spec.places.show ? places : []).filter((p) => !p.hidden && (kinds[p.kind] || kinds.other).show !== false).map((p) => {
-      const k = kinds[p.kind] || kinds.other || PLACE_KINDS[PLACE_KINDS.length - 1];
-      return { type: 'Feature', id: p.id, properties: { id: p.id, name: p.name || '', color: k.color, size: k.size }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } };
-    }),
+    features: list.map((p, i) => ({ type: 'Feature', id: p.id, properties: {
+      id: p.id, kind: spec.places.kinds[p.kind] ? p.kind : 'other', name: p.name || '', num: i + 1, label: labelText(p, i + 1, spec.places.label.field),
+      date: p.date || '', nights: p.nights || 0, notes: p.notes || '', glyphNumber: kindOf(spec, p.kind).glyph === 'number',
+      numOffset: numOffset(kindOf(spec, p.kind)),
+    }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })),
   };
+}
+// Where the night number sits, in ems of its 9 px text: the shape's centre
+// relative to the location point (above it, for a teardrop pin).
+function numOffset(kind) {
+  const sh = SHAPES[kind.shape] || SHAPES.circle, px = kind.size * 2.6;
+  return [0, ((sh.center[1] - (sh.anchor === 'bottom' ? 23 : 12)) * px) / 24 / 9];
+}
+function staysLine(places, spec) {
+  if (!spec.places.connect.show) return EMPTY;
+  const pts = visiblePlaces(places, spec).filter((p) => p.date).map((p) => [p.lon, p.lat]);
+  return pts.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: pts } }] } : EMPTY;
+}
+
+// One bitmap per kind, drawn at the map's pixel ratio so pins are crisp on
+// screen and at print resolution. The anchor point sits at the image centre.
+function pinImage(kind, places, pr) {
+  const px = kind.size * 2.6;
+  const sh = SHAPES[kind.shape] || SHAPES.circle;
+  const sw = places.strokeWidth, pad = sw + (places.shadow ? 3 : 1);
+  const w = Math.ceil((px + pad * 2) * pr);
+  const h = Math.ceil((sh.anchor === 'bottom' ? (px + pad) * 2 : px + pad * 2) * pr);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.scale(pr, pr);
+  const parts = pinParts(kind, { x: w / pr / 2, y: h / pr / 2, px });
+  const shape = new Path2D(parts.shape);
+  x.globalAlpha = places.opacity;
+  if (places.shadow) { x.save(); x.shadowColor = 'rgba(0,0,0,0.35)'; x.shadowBlur = 3; x.shadowOffsetY = 1; x.fillStyle = kind.color; x.fill(shape); x.restore(); }
+  x.fillStyle = kind.color; x.fill(shape);
+  if (sw > 0) { x.lineWidth = sw; x.lineJoin = 'round'; x.strokeStyle = places.stroke; x.stroke(shape); }
+  if (parts.glyph) { x.fillStyle = kind.glyphColor || '#ffffff'; x.fill(new Path2D(parts.glyph), 'evenodd'); }
+  return { image: x.getImageData(0, 0, w, h), pixelRatio: pr, glyphDy: (parts.center[1] - h / pr / 2) };
+}
+function syncPins(map, spec, pr) {
+  const out = {};
+  for (const [id, kind] of Object.entries(spec.places.kinds)) {
+    const name = `ta-pin-${id}`;
+    const { image, pixelRatio, glyphDy } = pinImage(kind, spec.places, pr);
+    if (map.hasImage(name)) map.removeImage(name);
+    map.addImage(name, image, { pixelRatio });
+    out[id] = glyphDy;
+  }
+  return out;
 }
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
@@ -219,6 +319,8 @@ function addOurLayers(map, spec) {
   add('ta-photos', { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 36, clusterMaxZoom: 13 });
   add('ta-dem', { type: 'raster-dem', tiles: [DEM], encoding: 'terrarium', tileSize: 256, maxzoom: 14, attribution: 'Terrain: Mapzen/AWS' });
   add('ta-countries', { type: 'geojson', data: EMPTY });
+
+  add('ta-stays-line', { type: 'geojson', data: EMPTY });
   if (!map.hasImage('ta-arrow')) map.addImage('ta-arrow', arrowImage(), { sdf: true });
 
   // Under the water so coasts stay crisp: visited fills, then relief.
@@ -226,6 +328,9 @@ function addOurLayers(map, spec) {
   map.addLayer({ id: 'ta-visited', type: 'fill', source: 'ta-countries', filter: ['get', 'visited'], paint: { 'fill-color': '#000', 'fill-opacity': 0 } }, waterId);
   map.addLayer({ id: 'ta-visited-line', type: 'line', source: 'ta-countries', filter: ['get', 'visited'], layout: { visibility: 'none' }, paint: {} }, firstLabel);
   map.addLayer({ id: 'ta-relief', type: 'hillshade', source: 'ta-dem', layout: { visibility: 'none' }, paint: {} }, waterId);
+  // Soft coast: a blurred line in the land colour along the (coarse) shoreline.
+  const afterWater = layers[layers.findIndex((l) => l.id === waterId) + 1];
+  if (map.getSource('ta-coastsrc')) map.addLayer({ id: 'ta-coast-soft', type: 'line', source: 'ta-coastsrc', 'source-layer': 'water', filter: ['==', ['get', 'class'], 'ocean'], layout: { visibility: 'none', 'line-join': 'round' }, paint: {} }, afterWater && afterWater.id);
 
   const solid = (d) => ['==', ['get', 'dash'], d];
   map.addLayer({ id: 'ta-glow', type: 'line', source: 'ta-routes', layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: {} }, firstLabel);
@@ -239,15 +344,17 @@ function addOurLayers(map, spec) {
   map.addLayer({ id: 'ta-active-casing', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['+', ['get', 'width'], 3] } });
   map.addLayer({ id: 'ta-active', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] } });
   map.addLayer({ id: 'ta-active-head', type: 'circle', source: 'ta-active', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['get', 'r'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 } });
-  map.addLayer({ id: 'ta-places', type: 'circle', source: 'ta-places', paint: {} });
-  map.addLayer({ id: 'ta-place-labels', type: 'symbol', source: 'ta-places', layout: { 'text-field': ['get', 'name'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true, 'text-font': ['Noto Sans Regular'] }, paint: {} });
+  map.addLayer({ id: 'ta-stays-line', type: 'line', source: 'ta-stays-line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: {} });
+  map.addLayer({ id: 'ta-places', type: 'symbol', source: 'ta-places', layout: { 'icon-image': ['concat', 'ta-pin-', ['get', 'kind']], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['get', 'num'] }, paint: {} });
+  map.addLayer({ id: 'ta-place-num', type: 'symbol', source: 'ta-places', filter: ['get', 'glyphNumber'], layout: { 'text-field': ['to-string', ['get', 'num']], 'text-font': ['Noto Sans Bold'], 'text-size': 9, 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-offset': ['get', 'numOffset'] }, paint: {} });
+  map.addLayer({ id: 'ta-place-labels', type: 'symbol', source: 'ta-places', layout: { 'text-field': ['get', 'label'], 'text-optional': true, 'text-font': ['Noto Sans Regular'] }, paint: {} });
   map.addLayer({ id: 'ta-photos', type: 'circle', source: 'ta-photos', layout: { visibility: 'none' }, paint: { 'circle-color': '#ffffff', 'circle-radius': ['case', ['has', 'point_count'], ['interpolate', ['linear'], ['get', 'point_count'], 2, 11, 50, 18], 7], 'circle-stroke-color': '#16202b', 'circle-stroke-width': 2 } });
   map.addLayer({ id: 'ta-photo-count', type: 'symbol', source: 'ta-photos', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 11, 'text-font': ['Noto Sans Bold'], visibility: 'none' }, paint: { 'text-color': '#16202b' } });
   void layers;
 }
 
 function paintOurs(map, spec, visibleFilter, mode) {
-  const fx = spec.routeFx, cs = spec.routeCasing, overlay = mode !== 'base';
+  const fx = spec.routeFx, cs = spec.routeCasing, overlay = mode !== 'base', base = mode !== 'overlay';
   const withVis = (f) => (visibleFilter ? (f ? ['all', f, visibleFilter] : visibleFilter) : f || null);
   const op = (a) => ['case', DIM, 0.15, a];
   const width = ['case', SEL, ['+', ['get', 'width'], 2.5], HOV, ['+', ['get', 'width'], 1.5], ['get', 'width']];
@@ -297,17 +404,39 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setP(map, 'ta-ends', 'circle-stroke-width', 1.5);
   map.setFilter('ta-ends', withVis(null));
 
-  setL(map, 'ta-places', 'visibility', vis(overlay));
-  setP(map, 'ta-places', 'circle-color', ['get', 'color']);
-  setP(map, 'ta-places', 'circle-radius', ['get', 'size']);
-  setP(map, 'ta-places', 'circle-stroke-color', spec.places.stroke);
-  setP(map, 'ta-places', 'circle-stroke-width', spec.places.strokeWidth);
-  setL(map, 'ta-place-labels', 'visibility', vis(overlay && spec.places.labels));
-  setP(map, 'ta-place-labels', 'text-color', spec.labels.color);
-  setP(map, 'ta-place-labels', 'text-halo-color', spec.labels.halo);
-  setP(map, 'ta-place-labels', 'text-halo-width', 1.2);
+  const pl = spec.places, lb = pl.label;
+  setL(map, 'ta-places', 'visibility', vis(overlay && pl.show));
+  setL(map, 'ta-place-num', 'visibility', vis(overlay && pl.show));
+  setP(map, 'ta-place-num', 'text-color', '#ffffff');
+  const pos = { top: ['bottom', [0, -1]], bottom: ['top', [0, 1]], left: ['right', [-1, 0]], right: ['left', [1, 0]] }[lb.position] || ['bottom', [0, -1]];
+  const r = Math.max(...Object.values(pl.kinds).map((k) => k.size)) * 1.3 / lb.size;
+  setL(map, 'ta-place-labels', 'visibility', vis(overlay && pl.show && pl.labels));
+  setL(map, 'ta-place-labels', 'text-anchor', pos[0]);
+  setL(map, 'ta-place-labels', 'text-offset', [pos[1][0] * (r + 0.4), pos[1][1] * (r + 0.4)]);
+  setL(map, 'ta-place-labels', 'text-size', lb.size);
+  setL(map, 'ta-place-labels', 'text-font', [lb.font]);
+  setL(map, 'ta-place-labels', 'text-transform', lb.uppercase ? 'uppercase' : 'none');
+  setP(map, 'ta-place-labels', 'text-color', lb.color || spec.labels.color);
+  setP(map, 'ta-place-labels', 'text-halo-color', lb.halo || spec.labels.halo);
+  setP(map, 'ta-place-labels', 'text-halo-width', lb.haloWidth);
+  map.setLayerZoomRange('ta-place-labels', lb.minZoom || 0, 24);
+  const cn = pl.connect;
+  setL(map, 'ta-stays-line', 'visibility', vis(overlay && pl.show && cn.show));
+  setP(map, 'ta-stays-line', 'line-color', cn.color);
+  setP(map, 'ta-stays-line', 'line-width', cn.width);
+  setP(map, 'ta-stays-line', 'line-opacity', cn.opacity);
+  setP(map, 'ta-stays-line', 'line-dasharray', DASHES[cn.dash] || [1, 0]);
 
-  const base = mode !== 'overlay', v = spec.visited;
+  const dt = spec.detail;
+  if (map.getLayer('ta-coast-soft')) {
+    setL(map, 'ta-coast-soft', 'visibility', vis(base && dt.softness > 0));
+    setP(map, 'ta-coast-soft', 'line-color', spec.land);
+    setP(map, 'ta-coast-soft', 'line-width', dt.softness * 1.2);
+    setP(map, 'ta-coast-soft', 'line-blur', dt.softness);
+    setP(map, 'ta-coast-soft', 'line-opacity', 0.75);
+  }
+
+  const v = spec.visited;
   setP(map, 'ta-visited', 'fill-color', v.color);
   setP(map, 'ta-visited', 'fill-opacity', base && v.show ? v.opacity : 0);
   setP(map, 'ta-unvisited', 'fill-color', v.fadeOthers.color);
@@ -348,7 +477,7 @@ export async function createAtlas(container, {
 
   const map = new maplibregl.Map({
     container,
-    style: await fetchBasemap(spec.basemap),
+    style: await fetchBasemap(spec.basemap, spec.detail && spec.detail.baseLevel, spec.detail && spec.detail.coastline),
     interactive,
     attributionControl: attribution ? { compact: true } : false,
     canvasContextAttributes: { preserveDrawingBuffer, antialias: true },
@@ -363,6 +492,7 @@ export async function createAtlas(container, {
     maxPitch: 75,
   });
   if (interactive) map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+  if (interactive) window.__taMap = map; // handy in the console: the live map
 
   await new Promise((res) => (map.isStyleLoaded() ? res() : map.once('style.load', res)));
 
@@ -383,13 +513,19 @@ export async function createAtlas(container, {
     map.getSource('ta-ends').setData(endpointFeatures(routes, current));
     restoreStates();
   }
+  const pr = pixelRatio || window.devicePixelRatio || 1;
+  function setPlaceData() {
+    map.getSource('ta-places').setData(placeFeatures(places, current));
+    map.getSource('ta-stays-line').setData(staysLine(places, current));
+  }
   function paintAll() {
     applyBase(map, current, orig, mode);
     if (!map.getLayer('ta-casing')) addOurLayers(map, current);
     paintOurs(map, current, visibleFilter(), mode);
     applyProjection(map, current, container);
+    syncPins(map, current, pr);
     setRouteData();
-    map.getSource('ta-places').setData(placeFeatures(places, current));
+    setPlaceData();
     countriesLoaded = false;
     ensureCountries();
   }
@@ -426,6 +562,13 @@ export async function createAtlas(container, {
         } else handlers.photo.forEach((h) => h(ph.properties.id));
         return;
       }
+      const pin = map.getLayer('ta-places') && map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers: ['ta-places'] })[0];
+      if (pin) {
+        const q = pin.properties;
+        new maplibregl.Popup({ offset: 12, maxWidth: '280px' }).setLngLat(pin.geometry.coordinates)
+          .setHTML(`<strong>${escapeHtml(q.name)}</strong><br><span style="color:#677384">${escapeHtml(q.date)}${q.nights ? ` · ${q.nights} night${q.nights > 1 ? 's' : ''}` : ''}</span>${q.notes ? `<div style="margin-top:4px;font-size:12px">${escapeHtml(String(q.notes).slice(0, 220))}</div>` : ''}`).addTo(map);
+        return;
+      }
       const f = hit(e.point, 5);
       handlers.select.forEach((h) => h(f ? f.properties.id : null, e.originalEvent));
     });
@@ -436,19 +579,20 @@ export async function createAtlas(container, {
     on(ev, fn) { handlers[ev].push(fn); },
     get spec() { return current; },
     async setSpec(next) {
-      const basemapChanged = next.basemap !== current.basemap;
+      const basemapChanged = baseKey(next) !== baseKey(current);
       current = next;
       if (basemapChanged) {
-        map.setStyle(await fetchBasemap(next.basemap));
+        map.setStyle(await fetchBasemap(next.basemap, next.detail && next.detail.baseLevel, next.detail && next.detail.coastline));
         await new Promise((res) => map.once('style.load', res));
         orig = snapshotLabels(map);
       }
       paintAll();
     },
+    landReady: () => Promise.resolve(),
     setRoutes(list) { routes = list; setRouteData(); countriesLoaded = false; ensureCountries(); },
     // Show only these ids (null = all) without touching the data — instant.
     setVisible(ids) { visibleIds = ids ? [...ids] : null; paintOurs(map, current, visibleFilter(), mode); },
-    setPlaces(list) { places = list; map.getSource('ta-places').setData(placeFeatures(places, current)); },
+    setPlaces(list) { places = list; setPlaceData(); },
     setPhotos(list, show = true) {
       photos = list;
       map.getSource('ta-photos').setData({ type: 'FeatureCollection', features: photos.filter((p) => p.lat != null).map((p) => ({ type: 'Feature', properties: { id: p.id }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })) });

@@ -50,7 +50,7 @@ export function dateFromText(text, { tripStart } = {}) {
     if (v) return { date: v, matched: m[0] };
   }
   // Month D[_part| part] YYYY  ("July 1_2 2025", "June 12 1 2025", "August 02 2025")
-  const re1 = new RegExp(`\\b(${MONTH_RE})[\\s_-]*(\\d{1,2})(?:[_.]\\d|\\s\\d)?[\\s_-]+(\\d{4})\\b`, 'i');
+  const re1 = new RegExp(`\\b(${MONTH_RE})[\\s_-]*(\\d{1,2})(?:[_.]\\d|\\s\\d)?,?[\\s_-]+(\\d{4})\\b`, 'i');
   if ((m = text.match(re1))) {
     const v = iso(+m[3], MONTHS[m[1].toLowerCase()], +m[2]);
     if (v) return { date: v, matched: m[0] };

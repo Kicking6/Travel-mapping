@@ -41,6 +41,7 @@ export async function render(el) {
         <select class="select sm" id="styleSel" title="Map style" style="width:auto"></select>
         <button class="btn sm" id="fitAll" title="Zoom to the filtered routes">Fit</button>
         <a class="btn sm" href="#/draw" title="Add a route by clicking on the map">＋ Draw a route</a>
+        <label class="switch" style="font-size:var(--fs-sm);margin-left:4px" title="Accommodation and campsites"><input type="checkbox" id="showStays"><span class="track"></span>Stays</label>
         <label class="switch" style="font-size:var(--fs-sm);margin-left:4px" title="Photo pins"><input type="checkbox" id="showPhotos"><span class="track"></span>Photos</label>
       </div>
       <div class="map-float bl map-legend-float" id="legend"></div>
@@ -120,9 +121,9 @@ export async function render(el) {
     renderLegend();
     if (loadedVersion !== store.version) {
       atlas.setRoutes(store.routes);
-      atlas.setPlaces(store.places);
       loadedVersion = store.version;
     }
+    syncStays();
     atlas.setVisible(visible.map((r) => r.id));
     for (const id of [...selected]) if (!store.route(id)) selected.delete(id);
     atlas.setSelection([...selected]);
@@ -193,6 +194,17 @@ export async function render(el) {
   $('#showHidden', el).onchange = (e) => { prefs.showHidden = e.target.checked; onFilter(false); };
   $('#fitAll', el).onclick = () => fitVisible();
   $('#selAll', el).onclick = () => { visible.forEach((r) => selected.add(r.id)); atlas.setSelection([...selected]); renderTable(); renderDrawer(); };
+  // Stays (accommodation pins): on/off, and only those in the date filter.
+  const staysToggle = $('#showStays', el);
+  staysToggle.checked = prefs.stays !== false;
+  let lastStays = null;
+  function syncStays() {
+    const list = !staysToggle.checked ? [] : store.places.filter((p) => (!prefs.from || !p.date || p.date >= prefs.from) && (!prefs.to || !p.date || p.date <= prefs.to));
+    const key = `${store.version}|${list.length}|${prefs.from}|${prefs.to}`;
+    if (key !== lastStays) { atlas.setPlaces(list); lastStays = key; }
+  }
+  staysToggle.onchange = () => { prefs.stays = staysToggle.checked; savePrefs(prefs); syncStays(); };
+
   // Photo pins (clustered); click one for the lightbox.
   const photoToggle = $('#showPhotos', el);
   photoToggle.checked = /photos=1/.test(location.hash) || prefs.photos === true;

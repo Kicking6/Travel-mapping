@@ -3,6 +3,8 @@
 //   routes, bleed, crop marks), SVG (editable in Illustrator), ZIP (layered
 //   export), and route data as GPX / GeoJSON / KML.
 
+import { pathToPdf } from './pins.js';
+
 const enc = new TextEncoder();
 
 // ── CRC32 (PNG chunks, ZIP) ──
@@ -61,7 +63,7 @@ const mm = (v) => (v * 72) / 25.4;
 const num = (v) => (Math.round(v * 1000) / 1000).toString();
 const rgb = (h) => [1, 3, 5].map((i) => num(parseInt(h.slice(i, i + 2), 16) / 255)).join(' ');
 
-export function buildPdf({ trimW, trimH, bleed = 0, image, paths = [], marks = true, title = 'Trip Atlas map' }) {
+export function buildPdf({ trimW, trimH, bleed = 0, image, paths = [], shapes = [], marks = true, title = 'Trip Atlas map' }) {
   const W = trimW + bleed * 2, H = trimH + bleed * 2;
   const pw = mm(W), ph = mm(H);
   const parts = [];
@@ -83,6 +85,18 @@ export function buildPdf({ trimW, trimH, bleed = 0, image, paths = [], marks = t
     }
     c += `q ${gs}${rgb(p.color)} RG ${num(mm(p.width))} w 1 J 1 j ${p.dash ? `[${p.dash.map((d) => num(mm(d))).join(' ')}] 0 d` : '[] 0 d'}\n`;
     c += p.pts.map(([x, y], i) => `${num(mm(x))} ${num(ph - mm(y))} ${i ? 'l' : 'm'}`).join('\n') + '\nS Q\n';
+  }
+  // Filled shapes (place pins): `d` is an absolute M/L/C/Z path in mm from the top-left.
+  for (const sh of shapes) {
+    if (!sh.d) continue;
+    let gs = '';
+    if (sh.opacity != null && sh.opacity < 1) {
+      const key = num(sh.opacity);
+      if (!alphas.has(key)) alphas.set(key, `GS${alphas.size + 1}`);
+      gs = `/${alphas.get(key)} gs `;
+    }
+    const stroke = sh.stroke && sh.strokeWidth > 0;
+    c += `q ${gs}${rgb(sh.fill)} rg ${stroke ? `${rgb(sh.stroke)} RG ${num(mm(sh.strokeWidth))} w 1 j ` : ''}\n${pathToPdf(sh.d, (x) => mm(x), (y) => ph - mm(y))}\n${stroke ? 'B*' : 'f*'} Q\n`;
   }
   if (marks && bleed > 0) {
     const L = mm(Math.min(bleed, 5)), b = mm(bleed);
@@ -121,7 +135,7 @@ export function buildPdf({ trimW, trimH, bleed = 0, image, paths = [], marks = t
 // ── SVG ──
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Same `paths` as buildPdf (mm). `image`: data URL of the base map (optional).
-export function buildSvg({ w, h, image, paths = [], circles = [], texts = [], background }) {
+export function buildSvg({ w, h, image, paths = [], circles = [], shapes = [], texts = [], background }) {
   const d = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${num(x)} ${num(y)}`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${num(w)}mm" height="${num(h)}mm" viewBox="0 0 ${num(w)} ${num(h)}">
@@ -132,6 +146,7 @@ ${image ? `<image id="basemap" x="0" y="0" width="${num(w)}" height="${num(h)}" 
 ${paths.filter((p) => p.pts.length > 1).map((p) => `<path${p.id ? ` id="${esc(p.id)}"` : ''} d="${d(p.pts)}" stroke="${p.color}" stroke-width="${num(p.width)}"${p.dash ? ` stroke-dasharray="${p.dash.map(num).join(' ')}"` : ''}${p.opacity != null && p.opacity < 1 ? ` stroke-opacity="${num(p.opacity)}"` : ''}>${p.name ? `<title>${esc(p.name)}</title>` : ''}</path>`).join('\n')}
 </g>
 <g id="places">
+${shapes.filter((x) => x.d).map((x) => `<path d="${x.d}" fill="${x.fill}"${x.stroke && x.strokeWidth > 0 ? ` stroke="${x.stroke}" stroke-width="${num(x.strokeWidth)}" stroke-linejoin="round"` : ''}${x.opacity != null && x.opacity < 1 ? ` opacity="${num(x.opacity)}"` : ''} fill-rule="evenodd">${x.name ? `<title>${esc(x.name)}</title>` : ''}</path>`).join('\n')}
 ${circles.map((c) => `<circle cx="${num(c.x)}" cy="${num(c.y)}" r="${num(c.r)}" fill="${c.color}" stroke="${c.stroke || 'none'}" stroke-width="${num(c.strokeWidth || 0)}">${c.name ? `<title>${esc(c.name)}</title>` : ''}</circle>`).join('\n')}
 </g>
 <g id="text">

@@ -28,6 +28,18 @@ export async function render(el) {
       }).join('') || '<tr><td colspan="6" class="muted">No legs yet.</td></tr>'}
       </tbody></table></div></div>
 
+    <div class="card" id="connectors"><div class="card-head"><h3>Connectors — use Trip Atlas from Claude</h3></div><div class="card-body stack">
+      <p class="help">Trip Atlas is an MCP server: Claude can list, edit and import routes, add flights with layovers, find missing travel, manage places, legs, album pages and map styles — “rename the 3 Oct drives”, “add our flights AKL LAX JFK on 23 July”, “make walks thicker on the Norway style”. A token acts as you; make one per app and revoke it any time.</p>
+      <form class="filter-row" id="newToken"><input class="input sm" name="name" placeholder="Where it's used, e.g. Claude Desktop" required><button class="btn sm primary">Create token</button></form>
+      <div id="tokenShow"></div>
+      <table class="rt"><colgroup><col><col style="width:150px"><col style="width:150px"><col style="width:80px"></colgroup><tbody id="tokens"></tbody></table>
+      <details class="help"><summary>How to connect</summary>
+        <p><strong>Claude Desktop / claude.ai</strong> — Settings → Connectors → Add custom connector → paste the <em>connector URL</em> shown when you create a token.</p>
+        <p><strong>Claude Code</strong> — <span class="mono">claude mcp add --transport http trip-atlas ${esc(location.origin)}/mcp --header "Authorization: Bearer YOUR_TOKEN"</span></p>
+        <p>Anyone with the URL or token can change the trip, so keep them private; revoke here if one leaks.</p>
+      </details>
+    </div></div>
+
     ${store.me.isAdmin ? `<div class="card"><div class="card-head"><h3>People</h3></div><div class="card-body stack">
       <p class="help">Who can sign in. They get a 6-digit code by email — no passwords.</p>
       <table class="rt"><colgroup><col><col style="width:160px"><col style="width:90px"></colgroup><tbody>
@@ -74,6 +86,30 @@ export async function render(el) {
     if (!(await confirm('Remove leg', 'Routes stay; they just stop belonging to this leg.', 'Remove', true))) return;
     await api('DELETE', `/api/legs/${tr.dataset.id}`);
     await loadBootstrap(); render(el);
+  });
+
+  // Connectors
+  const drawTokens = async () => {
+    const { data } = await api('GET', '/api/tokens');
+    $('#tokens', el).innerHTML = data.tokens.map((t) => `<tr><td>${esc(t.name)} <span class="muted mono">${esc(t.prefix)}…</span></td><td class="help">Made ${esc(fmtDate(t.created_at.slice(0, 10)))}</td><td class="help">${t.last_used_at ? 'Used ' + esc(fmtDate(t.last_used_at.slice(0, 10))) : 'Not used yet'}</td><td><button class="btn ghost sm danger" data-revoke="${t.id}">Revoke</button></td></tr>`).join('') || '<tr><td class="muted">No tokens yet.</td></tr>';
+  };
+  drawTokens();
+  $('#newToken', el).onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const { data } = await api('POST', '/api/tokens', { name: e.target.name.value });
+      e.target.reset();
+      $('#tokenShow', el).innerHTML = `<div class="notice ok stack"><strong>Copy these now — they won't be shown again.</strong>
+        <div class="field"><label>Connector URL (Claude Desktop, claude.ai)</label><div class="filter-row"><input class="input sm mono" readonly value="${esc(data.mcpUrl)}"><button type="button" class="btn sm" data-copy="${esc(data.mcpUrl)}">Copy</button></div></div>
+        <div class="field"><label>Token (Claude Code, scripts)</label><div class="filter-row"><input class="input sm mono" readonly value="${esc(data.token)}"><button type="button" class="btn sm" data-copy="${esc(data.token)}">Copy</button></div></div></div>`;
+      drawTokens();
+    } catch (err) { toast(err.message, 'err'); }
+  };
+  $('#connectors', el).addEventListener('click', async (e) => {
+    const c = e.target.closest('[data-copy]');
+    if (c) { try { await navigator.clipboard.writeText(c.dataset.copy); c.textContent = 'Copied'; } catch (_) { /* clipboard blocked */ } return; }
+    const r = e.target.closest('[data-revoke]');
+    if (r && await confirm('Revoke token', 'Anything using this token stops working straight away.', 'Revoke', true)) { await api('DELETE', `/api/tokens/${r.dataset.revoke}`); drawTokens(); }
   });
 
   const ap = $('#addPerson', el);

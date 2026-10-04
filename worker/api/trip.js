@@ -2,6 +2,7 @@
 import { json, err, readJson, bumpVersion, dataVersion, pick, v, setClause, chunks, isId, HttpError } from './shared.js';
 import { normaliseEmail, forgetAll } from '../auth.js';
 import { validCoord } from '../../web/lib/geo.js';
+import { defaultStyle } from '../../web/lib/style.js';
 
 const LEG = { name: v.name, start_date: v.date, end_date: v.date, color: v.color, notes: v.text(2000), sort_order: v.int(0, 1e6) };
 const PLACE = {
@@ -13,6 +14,9 @@ export async function handle(request, env, url, user) {
   const p = url.pathname, m = request.method;
 
   if (p === '/api/bootstrap' && m === 'GET') {
+    // First visit (from the app or the MCP connector): make sure a style exists.
+    const seeded = await env.DB.prepare('SELECT COUNT(*) AS n FROM map_styles').first();
+    if (!seeded.n) await env.DB.prepare("INSERT OR IGNORE INTO map_styles (name, spec, updated_by) VALUES ('Album light', ?, 'seed')").bind(JSON.stringify(defaultStyle())).run();
     const [settings, legs, styles, maps, version] = await Promise.all([
       env.DB.prepare('SELECT key, value FROM trip_settings').all(),
       env.DB.prepare('SELECT * FROM legs ORDER BY start_date IS NULL, start_date, sort_order, id').all(),

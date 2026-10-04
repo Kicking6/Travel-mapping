@@ -135,3 +135,13 @@ test('style: legacy desktop settings carry over', () => {
   assert.equal(s.routes.walk.width, 3);
   assert.equal(s.routeOpacity, 0.76);
 });
+
+test('land polygons are split and rewound: outer ring anticlockwise, holes clockwise', async () => {
+  const { splitAndRewind } = await import('../web/lib/countries.js');
+  const cw = [[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]];        // clockwise outer (world-atlas style)
+  const ccwHole = [[2, 2], [8, 2], [8, 8], [2, 8], [2, 2]];       // anticlockwise hole
+  const [f] = splitAndRewind({ type: 'MultiPolygon', coordinates: [[cw, ccwHole]] });
+  const area = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };
+  assert.ok(area(f.geometry.coordinates[0]) > 0);
+  assert.ok(area(f.geometry.coordinates[1]) < 0);
+});

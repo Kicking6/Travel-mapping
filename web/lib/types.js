@@ -8,7 +8,7 @@
 export const TYPES = [
   { id: 'drive', label: 'Driving', color: '#3b6ea8', width: 2.5, tolerance: 15, words: ['drive', 'driving', 'car', 'roadtrip'] },
   { id: 'taxi', label: 'Taxi / rideshare', color: '#5d86b8', width: 2, tolerance: 15, words: ['taxi', 'uber', 'ubering', 'cab', 'rideshare'] },
-  { id: 'bus', label: 'Bus', color: '#c77d2e', width: 2.5, tolerance: 15, words: ['bus', 'busing', 'bussing', 'coach'] },
+  { id: 'bus', label: 'Bus / public transport', color: '#c77d2e', width: 2.5, tolerance: 15, words: ['bus', 'busing', 'bussing', 'coach', 'transit', 'shuttle', 'colectivo'] },
   { id: 'train', label: 'Train', color: '#8a5a9e', width: 2.5, tolerance: 15, words: ['train', 'rail', 'railway'] },
   { id: 'boat', label: 'Boat / ferry', color: '#2a9d8f', width: 2.5, tolerance: 10, words: ['boat', 'ferry', 'rib', 'sailing', 'boating', 'cruise'] },
   { id: 'walk', label: 'Walking / hiking', color: '#c0392b', width: 2.5, tolerance: 4, words: ['walk', 'walking', 'hike', 'hiking', 'trail', 'trek', 'summit', 'loop', 'stroll'] },

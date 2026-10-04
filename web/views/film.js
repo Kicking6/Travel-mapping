@@ -8,7 +8,6 @@ import { createAtlas } from '../map/atlas.js';
 import { resolveStyle, TITLE_FONTS } from '../lib/style.js';
 import { TYPES } from '../lib/types.js';
 import { buildTimeline, FILM_SIZES } from '../lib/film.js';
-import { download } from '../map/render.js';
 
 const MUXER = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/+esm';
 const PREF = 'ta-film';
@@ -110,11 +109,14 @@ export async function render(el) {
         <button class="btn primary" id="renderBtn">Render MP4</button>
         <div class="help" id="renderInfo"></div>
         <div class="progress" id="renderBar" hidden><i></i></div>
-        <p class="help">Rendering draws every frame at full quality, so it takes longer than the film — keep this tab in front. Add music afterwards in iMovie, CapCut or Premiere.</p>
+        <p class="help">The live preview draws as tiles arrive, so it can stutter; <strong>Prerender preview</strong> renders a smooth low-res copy first. Full renders take longer than the film — keep this tab in front. Add music afterwards in iMovie, CapCut or Premiere.</p>
       </div>
     </div></aside>
-    <section class="ws-map"><div class="film-stage" id="stage"><div class="film-frame" id="frame"><div class="map" id="map"></div><canvas class="film-overlay" id="overlay"></canvas></div></div>
-      <div class="map-float film-bar"><button class="btn sm primary" id="play">Play</button><input type="range" id="scrub" min="0" max="1000" value="0"><span class="mono help" id="clock">0:00</span></div></section></div>`;
+    <section class="ws-map"><div class="film-stage" id="stage"><div class="film-frame" id="frame"><div class="map" id="map"></div><canvas class="film-overlay" id="overlay"></canvas>
+        <video id="video" playsinline controls hidden style="position:absolute;inset:0;width:100%;height:100%;background:#000"></video></div></div>
+      <div class="map-float film-bar" id="liveBar"><button class="btn sm primary" id="play">Play</button><input type="range" id="scrub" min="0" max="1000" value="0"><span class="mono help" id="clock">0:00</span>
+        <button class="btn sm" id="prerender" title="Render a smooth, low-resolution version and play it — every map tile loaded">Prerender preview</button></div>
+      <div class="map-float film-bar" id="videoBar" hidden><span class="help" id="videoInfo" style="flex:1"></span><a class="btn sm" id="videoSave" download>Download</a><button class="btn sm" id="backLive">Back to live preview</button></div></section></div>`;
 
   const panel = $('#panel', el);
   const size = () => FILM_SIZES.find((s) => s.id === prefs.size) || FILM_SIZES[0];
@@ -229,8 +231,9 @@ export async function render(el) {
         onProgress: (i, n, eta) => { bar.firstElementChild.style.width = `${(i / n) * 100}%`; info.textContent = `Frame ${i.toLocaleString()} of ${n.toLocaleString()} · about ${eta} left`; },
       });
       if (res) {
-        if (res.blob) download(res.blob, `${(prefs.title || 'Trip film').replace(/[^\w\- ]+/g, '')} — ${size().w}x${size().h} ${prefs.fps}fps.mp4`);
-        info.textContent = `Done — ${res.frames.toLocaleString()} frames${res.blob ? `, ${(res.blob.size / 1e6).toFixed(0)} MB` : ' saved to your file'} in ${Math.round(res.seconds)} s.`;
+        const fname = `${(prefs.title || 'Trip film').replace(/[^\w\- ]+/g, '')} — ${size().w}x${size().h} ${prefs.fps}fps.mp4`;
+        if (res.blob) showVideo(res.blob, fname, `${size().w}×${size().h} · ${prefs.fps} fps · ${(res.blob.size / 1e6).toFixed(0)} MB`);
+        info.textContent = `Done — ${res.frames.toLocaleString()} frames${res.blob ? `, ${(res.blob.size / 1e6).toFixed(0)} MB — playing above; Download to keep it` : ' saved to your file'} in ${Math.round(res.seconds)} s.`;
       } else info.textContent = 'Render cancelled.';
     } catch (e) { toast(e.message, 'err'); info.textContent = ''; }
     finally {
@@ -240,8 +243,41 @@ export async function render(el) {
     }
   };
 
+  // Rendered films play right here (smooth, every tile loaded).
+  let videoUrl = null;
+  function showVideo(blob, fname, label) {
+    playing = false; $('#play', el).textContent = 'Play';
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    videoUrl = URL.createObjectURL(blob);
+    const v = $('#video', el); v.src = videoUrl; v.hidden = false; v.play().catch(() => {});
+    $('#videoSave', el).href = videoUrl; $('#videoSave', el).download = fname;
+    $('#videoInfo', el).textContent = label;
+    $('#liveBar', el).hidden = true; $('#videoBar', el).hidden = false;
+  }
+  $('#backLive', el).onclick = () => { const v = $('#video', el); v.pause(); v.hidden = true; $('#liveBar', el).hidden = false; $('#videoBar', el).hidden = true; draw(); };
+  // Prerender: same frame-by-frame renderer at preview size (~960 px), standard quality.
+  $('#prerender', el).onclick = async () => {
+    if (cancel) return;
+    const s0 = size(), k = Math.min(1, 960 / Math.max(s0.w, s0.h));
+    const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+    const small = { ...s0, w: even(s0.w * k), h: even(s0.h * k) };
+    const btn = $('#prerender', el), info = $('#renderInfo', el), bar = $('#renderBar', el);
+    let stop = false; cancel = () => { stop = true; };
+    btn.textContent = 'Cancel'; btn.onclickBackup = btn.onclick; bar.hidden = false;
+    const restore = () => { cancel = null; btn.textContent = 'Prerender preview'; bar.hidden = true; };
+    btn.onclick = () => { stop = true; };
+    try {
+      await loadImages();
+      const res = await renderFilm({ size: small, fps: 30, quality: 'standard', spec: spec(), routes: routes(), photos: prefs.photos ? photos : [], prefs, images, overlay: overlayOpts(routes()), shouldStop: () => stop,
+        onProgress: (i, n, eta) => { bar.firstElementChild.style.width = `${(i / n) * 100}%`; info.textContent = `Prerendering ${i.toLocaleString()} / ${n.toLocaleString()} frames · about ${eta} left`; } });
+      if (res && res.blob) { showVideo(res.blob, `Preview — ${small.w}x${small.h}.mp4`, `Preview · ${small.w}×${small.h} · 30 fps`); info.textContent = 'Preview ready — exactly what the full render will look like, at lower resolution.'; }
+      else info.textContent = 'Prerender cancelled.';
+    } catch (e) { toast(e.message, 'err'); info.textContent = ''; }
+    finally { restore(); btn.onclick = btn.onclickBackup; }
+  };
+
   rebuild();
-  return () => { playing = false; cancelAnimationFrame(raf); ro.disconnect(); atlas.destroy(); if (cancel) cancel(); };
+  return () => { playing = false; cancelAnimationFrame(raf); ro.disconnect(); atlas.destroy(); if (cancel) cancel(); if (videoUrl) URL.revokeObjectURL(videoUrl); };
 }
 
 // ── Offline render ───────────────────────────────────────────────────────

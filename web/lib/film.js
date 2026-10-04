@@ -85,9 +85,16 @@ export function buildTimeline(routes, photos = [], opts = {}) {
 
   // Time budget: intro + outro + glides + photo holds fixed; drawing gets the rest by √km.
   const intro = opts.intro ?? 3, outro = opts.outro ?? 4, photoSec = opts.photoSeconds ?? 2.2;
-  const glideFor = (a, b) => Math.min(2.4, 0.7 + Math.hypot(b.cx - a.cx, b.cy - a.cy) * 2 ** Math.min(a.zoom, b.zoom) / (W * 6));
+  // Long enough for the distance *and* the zoom change (≈ 0.7 s per zoom level,
+  // counting the pull-back on a long jump), so the camera never lurches.
+  const glideFor = (a, b) => {
+    const dist = 0.7 + Math.hypot(b.cx - a.cx, b.cy - a.cy) * 2 ** Math.min(a.zoom, b.zoom) / (W * 6);
+    const zMin = Math.min(a.zoom, b.zoom), bump = Math.max(0, Math.log2((Math.hypot(b.cx - a.cx, b.cy - a.cy) * 2 ** zMin) / (W * 0.7)));
+    const zoomTravel = Math.abs(b.zoom - a.zoom) + 2 * bump;
+    return Math.min(6, Math.max(dist, 0.7 * zoomTravel));
+  };
   let prev = all, fixed = intro + outro;
-  for (const g of groups) { g.glide = glideFor(prev, g.cam); prev = g.cam; fixed += g.glide + g.photos.length * photoSec; }
+  for (const g of groups) { g.glide = glideFor(prev, { ...g.cam, zoom: g.cam.zoom - 0.45 }); prev = g.cam; fixed += g.glide + g.photos.length * photoSec; }
   const weights = groups.map((g) => Math.sqrt(Math.max(0.5, g.km)));
   const wsum = weights.reduce((a, b) => a + b, 0);
   const drawBudget = Math.max(groups.length * 0.6, (opts.seconds || 90) - fixed);
@@ -100,9 +107,12 @@ export function buildTimeline(routes, photos = [], opts = {}) {
   t = intro;
   prev = all;
   let kmSoFar = 0;
+  const PUSH = 0.45; // each beat starts this much wider and slowly pushes in
   for (const g of groups) {
-    events.push({ kind: 'glide', t0: t, t1: t + g.glide, from: prev, to: g.cam, g });
+    g.camWide = { ...g.cam, zoom: g.cam.zoom - PUSH };
+    events.push({ kind: 'glide', t0: t, t1: t + g.glide, from: prev, to: g.camWide, g });
     t += g.glide;
+    g.t0 = t; g.t1 = t + g.draw;
     const gkm = g.routes.reduce((a, r) => a + Math.max(0.05, r.distance_km || 0), 0);
     let tr = t;
     for (const r of g.routes) {
@@ -114,8 +124,11 @@ export function buildTimeline(routes, photos = [], opts = {}) {
     for (const p of g.photos) { events.push({ kind: 'photo', t0: t, t1: t + photoSec, cam: g.cam, photo: p, g, km0: kmSoFar }); t += photoSec; }
     prev = g.cam;
   }
-  events.push({ kind: 'outro', t0: t, t1: t + outro, from: prev, to: all, km0: kmSoFar });
-  const duration = t + outro;
+  // The closing pull-back to the whole trip gets zoom-aware time too, then holds.
+  const outroGlide = glideFor(prev, all);
+  const outroLen = Math.max(outro, outroGlide + 1.5);
+  events.push({ kind: 'outro', t0: t, t1: t + outroLen, from: prev, to: all, km0: kmSoFar, glide: outroGlide });
+  const duration = t + outroLen;
 
   // done-set per event index, built once so frame(t) is O(log n).
   const doneBefore = [];
@@ -124,28 +137,50 @@ export function buildTimeline(routes, photos = [], opts = {}) {
 
   const pitch = opts.pitch || 0, drift = opts.drift ? 6 : 0;
   const toCam = (c, tt) => ({ center: [unx(c.cx), uny(c.cy)], zoom: c.zoom, bearing: drift ? Math.sin(tt / 9) * drift : 0, pitch });
+  const eventAt = (tt) => {
+    let lo = 0, hi = events.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (events[mid].t0 <= tt) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+  // The camera as laid out (mercator x/y + zoom), before smoothing.
+  function rawCam(tt) {
+    tt = Math.max(0, Math.min(duration - 1e-6, tt));
+    const e = events[eventAt(tt)], f = (tt - e.t0) / Math.max(1e-6, e.t1 - e.t0);
+    if (e.kind === 'intro') return all;
+    if (e.kind === 'outro') return glide(e.from, e.to, Math.min(1, (tt - e.t0) / e.glide), W);
+    if (e.kind === 'glide') return glide(e.from, e.to, f, W);
+    const g = e.g, fg = Math.max(0, Math.min(1, (tt - g.t0) / Math.max(1e-6, g.t1 - g.t0)));
+    return { ...g.cam, zoom: g.cam.zoom - PUSH * (1 - smooth(fg)) };
+  }
+  // Gaussian-weighted average over ±0.5 s: rounds off every corner where one
+  // move hands over to the next, so the camera never jerks. Pure function of
+  // t, so preview and render match exactly.
+  const KERNEL = [-4, -3, -2, -1, 0, 1, 2, 3, 4].map((k) => [k * 0.12, Math.exp(-(k * k) / 8)]);
+  const KSUM = KERNEL.reduce((a, [, w]) => a + w, 0);
+  function smoothCam(tt) {
+    let cx = 0, cy = 0, z = 0;
+    for (const [dt, w] of KERNEL) { const c = rawCam(tt + dt); cx += c.cx * w; cy += c.cy * w; z += c.zoom * w; }
+    return { cx: cx / KSUM, cy: cy / KSUM, zoom: z / KSUM };
+  }
 
   function frame(tt) {
     tt = Math.max(0, Math.min(duration - 1e-6, tt));
-    let lo = 0, hi = events.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (events[mid].t0 <= tt) lo = mid; else hi = mid - 1; }
+    const lo = eventAt(tt);
     const e = events[lo], f = (tt - e.t0) / Math.max(1e-6, e.t1 - e.t0);
     const done = new Set(acc.slice(0, doneBefore[lo]));
-    const out = { t: tt, done, active: null, caption: null, km: e.km0 || 0, card: null, photo: null, progress: tt / duration };
-    if (e.kind === 'intro') { out.camera = toCam(all, tt); out.card = { kind: 'title', f }; }
-    else if (e.kind === 'outro') { out.camera = toCam(glide(e.from, e.to, Math.min(1, f * 1.6), W), tt); out.card = { kind: 'end', f }; out.km = e.km0; }
+    const out = { t: tt, done, active: null, caption: null, km: e.km0 || 0, card: null, photo: null, progress: tt / duration, camera: toCam(smoothCam(tt), tt) };
+    if (e.kind === 'intro') { out.card = { kind: 'title', f }; }
+    else if (e.kind === 'outro') { out.card = { kind: 'end', f }; out.km = e.km0; }
     else if (e.kind === 'glide') {
-      out.camera = toCam(glide(e.from, e.to, f, W), tt);
       const r0 = e.g.routes[0];
       out.caption = { date: r0.date, name: e.g.routes.length > 1 ? `${e.g.routes.length} journeys` : r0.name, f };
       out.km = (events.find((x) => x.kind === 'draw' && x.g === e.g) || { km0: 0 }).km0;
     } else if (e.kind === 'draw') {
-      out.camera = toCam(e.cam, tt);
-      out.active = { id: e.route.id, type: e.route.type, coords: sliceLine(e.route.coords, e.cum, smooth(f) * 0.3 + f * 0.7) };
+      // Constant pen speed through the beat (each route's time ∝ its km), so no stutter between routes.
+      out.active = { id: e.route.id, type: e.route.type, coords: sliceLine(e.route.coords, e.cum, f) };
       out.caption = { date: e.route.date, name: e.route.name, f: 1 };
       out.km = e.km0 + (e.route.distance_km || 0) * f;
     } else if (e.kind === 'photo') {
-      out.camera = toCam(e.cam, tt);
       out.photo = { ...e.photo, f };
       out.caption = { date: e.photo.date, name: e.photo.caption || '', f: 1 };
     }

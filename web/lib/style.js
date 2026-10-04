@@ -23,15 +23,21 @@ export const TITLE_FONTS = [
   { id: 'condensed', label: 'Condensed', css: '"Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", sans-serif' },
 ];
 
+// Kinds from the trip's accommodation sheet first, then general ones. `size`
+// is the pin's radius-ish in px (the icon box is ~2.6× it).
 export const PLACE_KINDS = [
-  { id: 'tent', label: 'Tent / campsite', color: '#2e7d32', size: 6 },
-  { id: 'hut', label: 'Hut / cabin', color: '#6d4c41', size: 6 },
-  { id: 'hotel', label: 'Hotel', color: '#1c5d8c', size: 6 },
-  { id: 'hostel', label: 'Hostel', color: '#7b5ea7', size: 6 },
-  { id: 'airbnb', label: 'Airbnb / rental', color: '#c2185b', size: 6 },
-  { id: 'friends', label: 'Friends / family', color: '#ef6c00', size: 6 },
-  { id: 'sight', label: 'Sight', color: '#455a64', size: 5 },
-  { id: 'other', label: 'Other', color: '#677384', size: 5 },
+  { id: 'freedom', label: 'Freedom camping', color: '#2e7d32', size: 6, shape: 'triangle', glyph: 'none' },
+  { id: 'campground', label: 'Campground', color: '#558b2f', size: 6.5, shape: 'pin', glyph: 'tent' },
+  { id: 'tent', label: 'Tent camping', color: '#33691e', size: 6.5, shape: 'circle', glyph: 'tent' },
+  { id: 'carpark', label: 'Car park / roadside', color: '#6d4c41', size: 5.5, shape: 'rounded', glyph: 'car' },
+  { id: 'stay', label: 'Accommodation', color: '#1c5d8c', size: 6.5, shape: 'pin', glyph: 'bed' },
+  { id: 'friends', label: 'Friends / family', color: '#ef6c00', size: 6.5, shape: 'pin', glyph: 'heart' },
+  { id: 'hut', label: 'Cabin / hut', color: '#795548', size: 6.5, shape: 'pin', glyph: 'cabin' },
+  { id: 'hotel', label: 'Hotel', color: '#1c5d8c', size: 6, shape: 'circle', glyph: 'bed' },
+  { id: 'hostel', label: 'Hostel', color: '#7b5ea7', size: 6, shape: 'circle', glyph: 'bed' },
+  { id: 'airbnb', label: 'Airbnb / rental', color: '#c2185b', size: 6, shape: 'circle', glyph: 'house' },
+  { id: 'sight', label: 'Sight', color: '#455a64', size: 5, shape: 'star', glyph: 'none' },
+  { id: 'other', label: 'Other', color: '#677384', size: 5, shape: 'circle', glyph: 'none' },
 ];
 
 export const DASHES = { solid: null, dashed: [3, 2], dotted: [0.1, 2], long: [6, 3], dashdot: [4, 2, 0.1, 2] };
@@ -54,7 +60,20 @@ export function defaultStyle() {
     routes: Object.fromEntries(TYPES.map((t) => [t.id, { color: t.color, width: t.width, show: true, dash: t.dash ? 'dashed' : 'solid' }])),
     routeOpacity: 0.95,
     routeCasing: { show: true, color: '#ffffff', width: 1.5 },
-    places: { show: true, kinds: Object.fromEntries(PLACE_KINDS.map((k) => [k.id, { color: k.color, size: k.size, show: true }])), labels: false, stroke: '#ffffff', strokeWidth: 1.5 },
+    places: {
+      show: true, labels: false, stroke: '#ffffff', strokeWidth: 1.5, opacity: 1, shadow: true,
+      kinds: Object.fromEntries(PLACE_KINDS.map((k) => [k.id, { color: k.color, size: k.size, show: true, shape: k.shape, glyph: k.glyph, glyphColor: '#ffffff' }])),
+      label: { field: 'name', size: 11, color: null, halo: null, haloWidth: 1.4, font: 'Noto Sans Regular', position: 'top', uppercase: false, minZoom: 0 },
+      numbering: false,                    // number stays in date order (shown by the "Night number" symbol and labels)
+      connect: { show: false, color: '#677384', width: 1.2, dash: 'dotted', opacity: 0.85 }, // join the stays in date order
+    },
+    // How coarse the base map is — for a clean, generalised look at any scale.
+    detail: {
+      coastline: 'osm',                    // osm (finest) | 10m (~1 km) | 50m (~5 km) | 110m (~30 km) — Natural Earth land
+      softness: 0,                         // px of blur along the coast
+      baseLevel: 0,                        // 0 = automatic; 2–12 caps how detailed the base map's shapes get
+      routeSimplify: 0,                    // metres — smooth our routes for the overview look
+    },
     smooth: true,
 
     // ── Advanced (Map styles → Advanced). Everything off by default, so the
@@ -189,12 +208,14 @@ export function validateStyle(spec) {
   (function walk(v, path) {
     if (isObj(v)) { for (const k of Object.keys(v)) walk(v[k], path + '.' + k); return; }
     if (typeof v === 'string' && (v.startsWith('#') || /(color|land|water|halo|background|shadow|highlight|accent|space|from|via|to|stroke|wood|grass|farmland|ice|sand|wetland|rock)$/i.test(path)) && !HEX.test(v)
-      && !/(blend|mode|font|position|subtitle|density|cap|dash|basemap|projection|titleFont|titleColor)$/i.test(path)) errs.push(`${path} is not a #rrggbb colour`);
+      && !/(blend|mode|font|position|subtitle|density|cap|dash|basemap|projection|titleFont|titleColor|shape|glyph|field|coastline)$/i.test(path)) errs.push(`${path} is not a #rrggbb colour`);
     if (/(width|size|spacing)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 400)) errs.push(`${path} out of range`);
+    if (/routeSimplify$/.test(path) && typeof v === 'number' && !(v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/(opacity|grain|vignette)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 1)) errs.push(`${path} must be 0–1`);
   })(spec, 'style');
   if (spec.basemap && !BASEMAPS.some((b) => b.id === spec.basemap)) errs.push('unknown basemap');
   if (spec.projection && !['mercator', 'globe'].includes(spec.projection)) errs.push('unknown projection');
+  if (spec.detail && !['osm', '10m', '50m', '110m'].includes(spec.detail.coastline)) errs.push('unknown coastline detail');
   return errs.length ? errs.join('; ') : null;
 }
 

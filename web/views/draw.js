@@ -13,13 +13,23 @@ import { loadCountries, countriesFor } from '../lib/countries.js';
 const PROFILES = [
   { id: 'car', label: 'Follow roads (driving)', osrm: 'routed-car' },
   { id: 'foot', label: 'Follow paths (walking)', osrm: 'routed-foot' },
+  { id: 'hike', label: 'Follow hiking trails (mountains)', brouter: 'hiking-mountain' },
   { id: 'bike', label: 'Follow cycle routes', osrm: 'routed-bike' },
   { id: 'straight', label: 'Straight lines (boats, off-trail)', osrm: null },
 ];
-const DEFAULT_PROFILE = { drive: 'car', taxi: 'car', bus: 'car', walk: 'foot', bike: 'bike', ski: 'straight', boat: 'straight', train: 'straight', flight: 'straight', other: 'car' };
+const DEFAULT_PROFILE = { drive: 'car', taxi: 'car', bus: 'car', walk: 'hike', bike: 'bike', ski: 'straight', boat: 'straight', train: 'straight', flight: 'straight', other: 'car' };
 
 export async function routeVia(profile, pts, signal) {
   const p = PROFILES.find((x) => x.id === profile);
+  if (p && p.brouter && pts.length > 1) {
+    // BRouter (open source, brouter.de): knows trail grades and SAC scales, so it follows real hiking paths.
+    const r = await fetch(`https://brouter.de/brouter?lonlats=${pts.map(([x, y]) => `${x.toFixed(6)},${y.toFixed(6)}`).join('|')}&profile=${p.brouter}&alternativeidx=0&format=geojson`, { signal });
+    if (!r.ok) throw new Error(`Hiking router: ${r.status}`);
+    const j = await r.json();
+    const c = j.features && j.features[0] && j.features[0].geometry.coordinates;
+    if (!c || c.length < 2) throw new Error('No trail between those points');
+    return c.map(([x, y]) => [x, y]);
+  }
   if (!p || !p.osrm || pts.length < 2) return pts.slice();
   const url = `https://routing.openstreetmap.de/${p.osrm}/route/v1/driving/${pts.map(([x, y]) => `${x.toFixed(6)},${y.toFixed(6)}`).join(';')}?overview=full&geometries=geojson`;
   const r = await fetch(url, { signal });
@@ -44,7 +54,7 @@ export async function render(el) {
       <div class="help" id="status"></div>
       <div class="toolbar"><button class="btn sm" id="undo">Undo</button><button class="btn sm" id="reverse">Reverse</button><button class="btn sm" id="clear">Clear</button></div>
       <button class="btn primary" id="save" disabled>Save route</button>
-      <p class="help">Routing by OSRM on routing.openstreetmap.de (OpenStreetMap data, fair use).</p>
+      <p class="help">Open-source routing on OpenStreetMap: OSRM (routing.openstreetmap.de) for roads, paths and bikes; BRouter (brouter.de) for hiking trails. Both are free community services — fair use.</p>
     </div></aside>
     <section class="ws-map"><div class="map" id="map"></div></section></div>`;
 

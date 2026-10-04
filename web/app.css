@@ -339,7 +339,7 @@ details.advanced { margin-top: 6px; border: 1px solid var(--rule); border-radius
 details.advanced > summary { cursor: pointer; padding: 10px 0; display: flex; flex-direction: column; gap: 2px; font-weight: 700; }
 details.advanced > summary .help { font-weight: 400; }
 details.advanced details.style-group:last-child { border-bottom: 0; }
-.range-line { display: grid; grid-template-columns: minmax(0, 1fr) 110px 52px; gap: 8px; align-items: center; font-size: var(--fs-sm); }
+.range-line { display: grid; grid-template-columns: minmax(0, 1fr) 100px 70px; gap: 8px; align-items: center; font-size: var(--fs-sm); }
 .range-line output { font-size: var(--fs-xs); color: var(--mute); text-align: right; font-variant-numeric: tabular-nums; }
 .route-line { display: grid; grid-template-columns: minmax(0, 1fr) 30px 58px 74px; gap: 6px; align-items: center; font-size: var(--fs-sm); }
 .route-line input[type=color] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); cursor: pointer; }
@@ -366,3 +366,7 @@ details.advanced details.style-group:last-child { border-bottom: 0; }
 .lightbox { max-width: 100%; max-height: 70vh; display: block; margin: 0 auto; border-radius: var(--r-sm); }
 .draw-panel { width: 300px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .wp-marker { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: grab; }
+.kind-block { padding: 6px 0 8px; border-bottom: 1px dashed var(--rule-soft); }
+.kind-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; gap: 6px; margin-top: 5px; }
+.kind-line input[type=color] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); cursor: pointer; }
+.range-line output { white-space: nowrap; }

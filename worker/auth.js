@@ -55,7 +55,7 @@ export const clearedCookie = (request) => `${SESSION_COOKIE}=; Path=/; HttpOnly;
 // One indexed read per request, cached per isolate for 30 s, so a page that
 // fires ten API calls costs one D1 read for identity.
 const cache = new Map();
-export function forgetAll() { cache.clear(); }
+export function forgetAll() { cache.clear(); tokenCache.clear(); }
 
 export async function identify(request, env) {
   const token = readCookie(request, SESSION_COOKIE);
@@ -69,6 +69,26 @@ export async function identify(request, env) {
   ).bind(hash).first();
   if (cache.size > 200) cache.delete(cache.keys().next().value);
   cache.set(hash, { user, at: Date.now() });
+  return user;
+}
+
+// A personal access token (Settings → Connectors) acts as its owner.
+const tokenCache = new Map();
+export async function identifyToken(env, token) {
+  if (!/^ta_[A-Za-z0-9_-]{30,40}$/.test(token || '')) return null;
+  const hash = await sha256Hex(token);
+  const hit = tokenCache.get(hash);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.user;
+  const row = await env.DB.prepare(
+    `SELECT u.email, u.name, u.is_admin, u.settings, t.id AS token_id, t.last_used_at FROM api_tokens t JOIN users u ON u.email = t.email
+      WHERE t.token_hash = ? AND t.revoked_at IS NULL AND u.status = 'active'`
+  ).bind(hash).first();
+  const user = row ? { email: row.email, name: row.name, is_admin: row.is_admin, settings: row.settings, via: 'token' } : null;
+  if (row && (!row.last_used_at || Date.now() - Date.parse(row.last_used_at.replace(' ', 'T') + 'Z') > 3600000)) {
+    await env.DB.prepare("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?").bind(row.token_id).run();
+  }
+  if (tokenCache.size > 200) tokenCache.delete(tokenCache.keys().next().value);
+  tokenCache.set(hash, { user, at: Date.now() });
   return user;
 }
 

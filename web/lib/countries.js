@@ -30,6 +30,29 @@ function decodeTopo(topo, objName) {
   }).filter(Boolean);
 }
 
+// One feature per polygon, wound the GeoJSON way (outer anticlockwise, holes
+// clockwise). world-atlas winds the other way round; drawn as-is, tiles that
+// sit wholly inside a continent came out as sea.
+const signedArea = (ring) => { let a = 0; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] - ring[i][0]) * (ring[j][1] + ring[i][1]); return a / 2; };
+const wind = (ring, ccw) => ((signedArea(ring) > 0) === ccw ? ring : ring.slice().reverse());
+export function splitAndRewind(geom) {
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.type === 'MultiPolygon' ? geom.coordinates : [];
+  return polys.map((rings) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: rings.map((r, i) => wind(r, i === 0)) } }));
+}
+
+// Natural Earth land at 1:10m / 1:50m / 1:110m — the "coastline detail" knob.
+// The same coast drawn at roughly 1 km, 5 km or 30 km resolution.
+const landLoads = new Map();
+export function loadLand(scale) {
+  if (!['10m', '50m', '110m'].includes(scale)) return Promise.reject(new Error('Unknown land scale'));
+  if (!landLoads.has(scale)) {
+    landLoads.set(scale, fetch(`https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-${scale}.json`)
+      .then((r) => { if (!r.ok) throw new Error('Could not load coastlines'); return r.json(); })
+      .then((t) => ({ type: 'FeatureCollection', features: decodeTopo(t, 'land').flatMap((x) => splitAndRewind(x.geom)) })));
+  }
+  return landLoads.get(scale);
+}
+
 export function loadCountries() {
   if (!loading) loading = fetch(URL).then((r) => { if (!r.ok) throw new Error('Could not load country boundaries'); return r.json(); }).then((t) => decodeTopo(t, 'countries'));
   return loading;

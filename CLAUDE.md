@@ -174,6 +174,18 @@ node scripts/import.mjs --email dev@trip-atlas.test --keep-originals <folders…
 - Auto-deploy (`.github/workflows/deploy.yml`, pushes to `main`) needs a project-scoped
   `CLOUDFLARE_API_TOKEN` Actions secret, like Site Scout's. Not set up; the branch isn't merged.
 
+## Status (2026-10-04, third pass)
+
+Data wholesale-replaced from ~/Downloads/GPX-Files-Raw "… Renamed for import" folders (+ Strava skiing):
+426 routes, 208 stays (OE_Trip_Accommodation_POI.csv, 24 day/month-swapped dates corrected), 17 legs from
+trip sections, trip_start 2024-07-23. Added: MCP connector (worker/mcp.js, /mcp + api_tokens), Strava import
+(needs STRAVA_CLIENT_ID/SECRET), flights with layovers + OurAirports list (size rank in [5]), Review →
+Missing travel (web/lib/travel.js), map detail (coastline = water from capped-zoom tiles, COAST_LEVEL in
+atlas.js; baseLevel caps the base source; route simplify), pins (web/lib/pins.js: shapes/glyphs → map
+bitmaps, SVG/PDF paths), BRouter hiking in Draw, smoothed film camera + Prerender. Visual checks: headless
+Chrome over CDP (a scratch script; the app exposes window.__taMap). Don't draw Natural Earth land as a
+GeoJSON fill — antimeridian cuts + tile seams broke it; the capped-water approach replaced it.
+
 ## Status (2026-10-04, second pass)
 
 Added: advanced styling + presets, export formats, drawing, photos, trip film, MapLibre 5.24.

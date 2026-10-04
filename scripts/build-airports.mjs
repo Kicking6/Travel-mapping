@@ -1,24 +1,28 @@
-// Builds web/data/airports.json from the Global Airport Database
-// (GlobalAirportDatabase.txt in the old "Python - OE Trip Map Generator"
-// folder): ICAO:IATA:NAME:CITY:COUNTRY:…:lat:lon. Keeps airports with an IATA
-// code and real coordinates. Run once: node scripts/build-airports.mjs <path>
+// Builds web/data/airports.json — IATA code → [lon, lat, name, city, ISO country].
+// Source: OurAirports (public domain), https://davidmegginson.github.io/ourairports-data/airports.csv
+// Keeps every airport with an IATA code that isn't closed. Run:
+//   curl -sL -o /tmp/airports.csv https://davidmegginson.github.io/ourairports-data/airports.csv
+//   node scripts/build-airports.mjs /tmp/airports.csv
 import fs from 'node:fs';
+import { parseCsv } from '../web/lib/gpx.js';
 const src = process.argv[2];
-if (!src) { console.error('usage: node scripts/build-airports.mjs GlobalAirportDatabase.txt'); process.exit(1); }
+if (!src) { console.error('usage: node scripts/build-airports.mjs airports.csv'); process.exit(1); }
+const rows = parseCsv(fs.readFileSync(src, 'utf8'));
+const head = rows.shift();
+const col = Object.fromEntries(head.map((h, i) => [h, i]));
+const rank = { large_airport: 3, medium_airport: 2, small_airport: 1, seaplane_base: 0, heliport: 0 };
 const out = {};
-for (const line of fs.readFileSync(src, 'latin1').split(/\r?\n/)) {
-  const f = line.split(':');
-  if (f.length < 16) continue;
-  const iata = f[1].trim(), lat = parseFloat(f[14]), lon = parseFloat(f[15]);
-  if (!/^[A-Z0-9]{3}$/.test(iata) || iata === 'N/A' || (!lat && !lon)) continue;
-  const tc = (s) => s.trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-  out[iata] = [Math.round(lon * 1e4) / 1e4, Math.round(lat * 1e4) / 1e4, tc(f[2]) === 'N/A' ? '' : tc(f[2]), tc(f[3]), tc(f[4])];
+for (const r of rows) {
+  const iata = (r[col.iata_code] || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(iata) || r[col.type] === 'closed') continue;
+  const lat = +r[col.latitude_deg], lon = +r[col.longitude_deg];
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+  const prev = out[iata];
+  const score = (rank[r[col.type]] ?? 0) + (r[col.scheduled_service] === 'yes' ? 4 : 0);
+  if (prev && prev.score >= score) continue; // a code shared by two places: keep the real airport
+    // [lon, lat, name, city, ISO country, size: 3 large / 2 medium / 1 small]
+  out[iata] = { score, v: [Math.round(lon * 1e4) / 1e4, Math.round(lat * 1e4) / 1e4, r[col.name], r[col.municipality] || '', r[col.iso_country], rank[r[col.type]] || 1] };
 }
-fs.writeFileSync(new URL('../web/data/airports.json', import.meta.url), JSON.stringify(out));
-console.log(Object.keys(out).length, 'airports');
-
-// Missing from the old database, needed for this trip (the legacy flight file
-// drew EZE → YYZ from 0,0 because of it).
-const extra = { EZE: [-58.5358, -34.8222, 'Ministro Pistarini (Ezeiza)', 'Buenos Aires', 'Argentina'] };
-const file = new URL('../web/data/airports.json', import.meta.url);
-fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), ...extra }));
+const flat = Object.fromEntries(Object.entries(out).map(([k, x]) => [k, x.v]));
+fs.writeFileSync(new URL('../web/data/airports.json', import.meta.url), JSON.stringify(flat));
+console.log(Object.keys(flat).length, 'airports');

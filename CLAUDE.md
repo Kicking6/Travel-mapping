@@ -162,7 +162,7 @@ node scripts/import.mjs --email dev@trip-atlas.test --keep-originals <folders…
 
 - **https://trip-atlas.rorywadeallen.workers.dev** — Worker `trip-atlas`, D1 `trip-atlas`
   (096324cc-…), R2 `trip-atlas-originals`, account f10b4619… (same as Site Scout).
-- Deploy: `npm run deploy` (migrations + deploy, uses the local `wrangler login`). Run `node --test`
+- Deploy: `npm run deploy` (migrations + deploy, uses the local `wrangler login`; CI=true makes the migration step apply without a prompt — run non-interactively it otherwise silently does nothing). Run `node --test`
   first and don't pipe it through grep — a filtered failure doesn't stop the chain.
 - Users: Rory (rorywadeallen@gmail.com) and Eva (evarblok@gmail.com), both admins, both in
   OPERATOR_EMAILS. Gmail addresses are normalised (dots and +tags ignored).

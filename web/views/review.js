@@ -100,7 +100,7 @@ export async function render(el, params) {
     $('#list', el).innerHTML = items.length ? `<table class="rt"><colgroup><col><col style="width:150px"></colgroup><tbody>${items.map((r) => {
       const s = sugg.get(r.id);
       const t = typeById(r.type);
-      return `<tr class="row ${selected.has(r.id) ? 'sel' : ''}" data-id="${r.id}"><td title="${esc(r.source_name || r.name)}"><span class="type-dot" style="background:${t.color}"></span>${esc(r.name)}
+      return `<tr class="row ${selected.has(r.id) ? 'sel' : ''}" data-id="${r.id}" data-route-id="${r.id}"><td title="${esc(r.source_name || r.name)}"><span class="type-dot" style="background:${t.color}"></span>${esc(r.name)}
         <div class="help">${r.date ? esc(fmtDate(r.date)) + ' · ' : ''}${fmtKm(r.distance_km)} km${r.review?.possibleDuplicateName ? ` · like “${esc(r.review.possibleDuplicateName)}”` : ''}</div></td>
         <td>${s ? `<button class="btn sm" data-use="${r.id}" data-date="${s.date}" title="Within ${Math.round(s.km)} km of “${esc(s.via.name)}”">${esc(fmtDate(s.date))}</button>` : queue === 'nodate' ? '<span class="help">no nearby route</span>' : ''}</td></tr>`;
     }).join('')}</tbody></table>` : `<div class="empty"><h3>All clear</h3><p>Nothing in “${esc(q.label)}”.</p></div>`;

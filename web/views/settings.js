@@ -22,7 +22,7 @@ export async function render(el) {
       <thead><tr><th></th><th>Name</th><th>From</th><th>To</th><th class="num">Routes</th><th></th></tr></thead><tbody id="legs">
       ${store.legs.map((l) => {
         const n = store.routes.filter((r) => r.leg_id === l.id || (!r.leg_id && r.date && l.start_date && l.end_date && r.date >= l.start_date && r.date <= l.end_date)).length;
-        return `<tr data-id="${l.id}"><td><input type="color" name="color" value="${esc(legColor(l))}" style="width:26px;height:24px;padding:0;border:0;background:none"></td>
+        return `<tr data-id="${l.id}" data-leg-id="${l.id}"><td><input type="color" name="color" value="${esc(legColor(l))}" style="width:26px;height:24px;padding:0;border:0;background:none"></td>
           <td><input class="input sm" name="name" value="${esc(l.name)}"></td><td><input class="input sm" type="date" name="start_date" value="${esc(l.start_date || '')}"></td>
           <td><input class="input sm" type="date" name="end_date" value="${esc(l.end_date || '')}"></td><td class="num">${n}</td><td><button class="btn ghost sm danger" data-del>Remove</button></td></tr>`;
       }).join('') || '<tr><td colspan="6" class="muted">No legs yet.</td></tr>'}

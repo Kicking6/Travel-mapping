@@ -112,7 +112,19 @@ curve wrapped in `*`.
 Route palettes (`ROUTE_PALETTES`, `spec.palette` = id + hue/saturation/lightness shifts + "fit" to a
 minimum contrast against the land colour): picking or tuning one *rewrites* `routes[type].color`, so
 every renderer keeps reading the per-type colours; a hand-edited colour lasts until the next pick.
-`places.scale` sizes every pin at once (`pinPx`).
+`places.scale` sizes every pin at once (`pinPx`). Line detail is per type: `routes[type].simplify`
+(metres; `null` = follow `detail.routeSimplify`, walks default to `0` = full detail) — `routeCoords()` in
+atlas.js applies it for the map, the film and the PDF/SVG export alike.
+
+## Feedback (from Site Scout)
+
+✎ Feedback in the top bar (or Shift+F) arms a picker: the next click captures the element — or, on a
+map, the route/stay/point under the pointer plus the camera — and opens the report box (kind, urgency,
+text, screenshot with highlight / black-out / crop). `web/diag.js` keeps the last errors and failed
+requests. Server: `worker/feedback.js` (rules, ported from Site Scout; codes `TA-<id>`; screenshots in
+the originals bucket under `feedback/`, hard-capped at 2 GB), `worker/api/feedback.js` (routes; a
+`critical` report emails the other admin). UI: `#/feedback` (Mine / Everyone's). Connector:
+`list_feedback`, `reply_feedback`. Processing: `.claude/skills/trip-feedback/`.
 
 ## Print export (web/map/render.js)
 

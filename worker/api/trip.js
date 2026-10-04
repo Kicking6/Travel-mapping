@@ -3,6 +3,7 @@ import { json, err, readJson, bumpVersion, dataVersion, pick, v, setClause, chun
 import { normaliseEmail, forgetAll } from '../auth.js';
 import { validCoord } from '../../web/lib/geo.js';
 import { defaultStyle } from '../../web/lib/style.js';
+import { feedbackCounts } from './feedback.js';
 
 const LEG = { name: v.name, start_date: v.date, end_date: v.date, color: v.color, notes: v.text(2000), sort_order: v.int(0, 1e6) };
 const PLACE = {
@@ -17,13 +18,15 @@ export async function handle(request, env, url, user) {
     // First visit (from the app or the MCP connector): make sure a style exists.
     const seeded = await env.DB.prepare('SELECT COUNT(*) AS n FROM map_styles').first();
     if (!seeded.n) await env.DB.prepare("INSERT OR IGNORE INTO map_styles (name, spec, updated_by) VALUES ('Album light', ?, 'seed')").bind(JSON.stringify(defaultStyle())).run();
-    const [settings, legs, styles, maps, version] = await Promise.all([
+    const [settings, legs, styles, maps, version, seen] = await Promise.all([
       env.DB.prepare('SELECT key, value FROM trip_settings').all(),
       env.DB.prepare('SELECT * FROM legs ORDER BY start_date IS NULL, start_date, sort_order, id').all(),
       env.DB.prepare('SELECT id, name, spec, updated_at FROM map_styles ORDER BY id').all(),
       env.DB.prepare('SELECT * FROM album_maps ORDER BY sort_order, id').all(),
       dataVersion(env),
+      env.DB.prepare('SELECT feedback_seen_at FROM users WHERE email = ?').bind(user.email).first(),
     ]);
+    const counts = await feedbackCounts(env, { ...user, feedback_seen_at: seen && seen.feedback_seen_at });
     const trip = Object.fromEntries(settings.results.map((r) => [r.key, r.value]));
     for (const s of styles.results) s.spec = JSON.parse(s.spec);
     for (const a of maps.results) for (const k of ['filter', 'view', 'paper', 'overrides', 'last_export']) a[k] = a[k] ? JSON.parse(a[k]) : null;
@@ -31,7 +34,7 @@ export async function handle(request, env, url, user) {
     try { settingsJson = JSON.parse(user.settings || '{}'); } catch (_) { /* keep {} */ }
     return json({
       me: { email: user.email, name: user.name, isAdmin: !!user.is_admin, settings: settingsJson },
-      trip, legs: legs.results, styles: styles.results, maps: maps.results, version,
+      trip, legs: legs.results, styles: styles.results, maps: maps.results, version, feedback: counts,
     });
   }
 

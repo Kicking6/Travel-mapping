@@ -8,8 +8,9 @@ import * as mapsApi from './maps.js';
 import * as photosApi from './photos.js';
 import * as tokensApi from './tokens.js';
 import * as stravaApi from './strava.js';
+import * as feedbackApi from './feedback.js';
 
-const MODULES = [routesApi, tripApi, mapsApi, photosApi, tokensApi, stravaApi];
+const MODULES = [routesApi, tripApi, mapsApi, photosApi, tokensApi, stravaApi, feedbackApi];
 
 export async function dispatch(request, env, url, user) {
   for (const mod of MODULES) {

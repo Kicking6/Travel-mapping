@@ -108,7 +108,7 @@ export async function render(el) {
       const t = typeById(r.type);
       const leg = legFor(r);
       const flag = needsReview(r) ? '<span class="flag" title="Needs a look — see Review">•</span>' : '';
-      body += `<tr class="row ${selected.has(r.id) ? 'sel' : ''} ${r.hidden ? 'hidden-route' : ''}" data-id="${r.id}">
+      body += `<tr class="row ${selected.has(r.id) ? 'sel' : ''} ${r.hidden ? 'hidden-route' : ''}" data-id="${r.id}" data-route-id="${r.id}">
         <td title="${esc(r.date || '')}">${r.date ? esc(fmtDate(r.date).replace(/ \d{4}$/, '')) : '<span class="muted">—</span>'}</td>
         <td title="${esc(r.name)}${leg ? ' · ' + esc(leg.name) : ''}"><span class="type-dot" style="background:${r.color || t.color}"></span>${esc(r.name)}${flag}</td>
         <td class="num">${fmtKm(r.distance_km)}</td></tr>`;

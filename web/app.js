@@ -29,7 +29,9 @@ export const store = {
 
 export async function loadBootstrap() {
   const { data } = await api('GET', '/api/bootstrap');
-  Object.assign(store, { me: data.me, trip: data.trip, legs: data.legs, styles: data.styles, maps: data.maps });
+  Object.assign(store, { me: data.me, trip: data.trip, legs: data.legs, styles: data.styles, maps: data.maps, feedback: data.feedback });
+  window.TA_USER = data.me;
+  paintFeedbackBadge();
   store.emit('bootstrap');
 }
 
@@ -46,6 +48,14 @@ export async function loadRoutes(force = false) {
   updateReviewCount();
   return true;
 }
+
+// New reports (for an admin) plus unread replies, on the Feedback button and menu item.
+function paintFeedbackBadge() {
+  const f = store.feedback || {}, n = (f.adminNewFeedback || 0) + (f.unreadReplies || 0);
+  for (const id of ['navFeedback', 'menuFeedback']) { const el = document.getElementById(id); if (el) { el.hidden = !n; el.textContent = n; } }
+}
+window.addEventListener('ta:feedback-counts', paintFeedbackBadge);
+window.addEventListener('ta:feedback-submitted', () => import('./views/feedback.js').then((m) => m.refreshCounts()));
 
 export const needsReview = (r) => !r.date || r.date_source === 'suggested' || r.type === 'other' || (r.review && r.review.possibleDuplicateName);
 function updateReviewCount() {
@@ -148,6 +158,7 @@ const VIEWS = {
   film: () => import('./views/film.js'),
   styles: () => import('./views/styles.js'),
   settings: () => import('./views/settings.js'),
+  feedback: () => import('./views/feedback.js'),
 };
 
 let cleanup = null;
@@ -177,6 +188,7 @@ function wireMenu() {
 
 async function start() {
   wireMenu();
+  $('#feedbackTopBtn').addEventListener('click', (e) => { e.stopPropagation(); if (window.TA_FEEDBACK) window.TA_FEEDBACK.arm(); });
   await loadBootstrap();
   const me = store.me;
   $('#menuName').textContent = me.name || me.email.split('@')[0];

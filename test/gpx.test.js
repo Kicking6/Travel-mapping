@@ -160,3 +160,14 @@ test('route palettes: every type coloured; tuning shifts; fit keeps lines readab
   assert.equal(validateStyle(applyPalette(s, { id: 'okabe', hue: -30, saturation: 20, lightness: -10 })), null);
   assert.match(validateStyle({ ...s, palette: { ...s.palette, hue: 500 } }), /hue/);
 });
+
+test('line detail per type: walks default to full detail; saved styles keep it; null follows the global', async () => {
+  const { resolveStyle, validateStyle } = await import('../web/lib/style.js');
+  const s = resolveStyle({ detail: { routeSimplify: 1750 }, routes: { walk: { color: '#71d353' } } });
+  assert.equal(s.routes.walk.simplify, 0);
+  assert.equal(s.routes.drive.simplify, null);
+  assert.equal(resolveStyle({ routes: { drive: { simplify: 250 } } }).routes.drive.simplify, 250);
+  assert.equal(resolveStyle({ routes: { walk: { simplify: null } } }).routes.walk.simplify, null);
+  assert.equal(validateStyle(s), null);
+  assert.match(validateStyle({ ...s, routes: { ...s.routes, bus: { ...s.routes.bus, simplify: -5 } } }), /simplify/);
+});

@@ -177,16 +177,22 @@ function tripSpan(routes) {
   return a ? [Date.parse(a), Math.max(Date.parse(b), Date.parse(a) + 1)] : null;
 }
 
-const simplified = new Map(); // `${id}:${tol}` → coords
+// A route's line as the style draws it: the type's own smoothing if it has
+// one (walks default to full detail), else "Smooth our routes" for all.
+// Shared with the vector (PDF/SVG) export so print matches the screen.
+const simplified = new Map(); // `${id}:${tol}:${n}` → coords
+export function routeCoords(r, spec) {
+  const ts = spec.routes[r.type] || spec.routes.other || {};
+  const own = ts.simplify;
+  const tol = r.type === 'flight' ? 0 : own != null ? own : (spec.detail && spec.detail.routeSimplify) || 0;
+  if (!tol || r.coords.length < 3) return r.coords;
+  const k = `${r.id}:${tol}:${r.coords.length}`;
+  if (!simplified.has(k)) { if (simplified.size > 5000) simplified.clear(); simplified.set(k, simplify(r.coords, tol)); }
+  return simplified.get(k);
+}
 function routeFeatures(routes, spec) {
   const g = spec.routeFx.gradient, span = g.mode === 'trip' ? tripSpan(routes) : null;
-  const tol = (spec.detail && spec.detail.routeSimplify) || 0;
-  const line = (r) => {
-    if (!tol || r.coords.length < 3) return r.coords;
-    const k = `${r.id}:${tol}:${r.coords.length}`;
-    if (!simplified.has(k)) { if (simplified.size > 5000) simplified.clear(); simplified.set(k, simplify(r.coords, tol)); }
-    return simplified.get(k);
-  };
+  const line = (r) => routeCoords(r, spec);
   const feats = [];
   for (const r of routes) {
     const ts = spec.routes[r.type] || spec.routes.other || { color: '#666', width: 2, show: true };

@@ -13,7 +13,7 @@
 // north arrow) → encode (PNG/JPEG/WebP/PDF/SVG/ZIP of layers).
 import { createAtlas } from './atlas.js';
 import { TITLE_FONTS, DASHES, PLACE_KINDS, pinPx } from '../lib/style.js';
-import { kindOf, visiblePlaces } from './atlas.js';
+import { kindOf, visiblePlaces, routeCoords } from './atlas.js';
 import { pinParts, mapPath } from '../lib/pins.js';
 import { typeById } from '../lib/types.js';
 import { pngWithDpi, jpegWithDpi, buildPdf, buildSvg, buildZip } from '../lib/outputs.js';
@@ -125,7 +125,7 @@ function projectVector(o, project, ratio) {
   for (const r of o.routes) {
     const ts = s.routes[r.type] || s.routes.other;
     if (!ts || ts.show === false) continue;
-    const pts = thin(r.coords.map(project));
+    const pts = thin(routeCoords(r, s).map(project));
     const width = (r.width || ts.width) * ratio, dash = DASHES[ts.dash] ? DASHES[ts.dash].map((d) => Math.max(d, 0.1) * width) : null;
     if (s.routeCasing.show && !dash) paths.push({ id: `casing-${r.id}`, pts, color: s.routeCasing.color, width: width + s.routeCasing.width * 2 * ratio, opacity: s.routeOpacity });
     paths.push({ id: `route-${r.id}`, name: `${r.name}${r.date ? ' · ' + r.date : ''}`, pts, color: r.color || ts.color, width, dash, opacity: s.routeOpacity });

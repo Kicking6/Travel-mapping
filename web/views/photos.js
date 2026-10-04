@@ -73,7 +73,7 @@ export async function render(el) {
     const byDay = new Map();
     for (const p of list) { const k = p.date || 'No date'; (byDay.get(k) || byDay.set(k, []).get(k)).push(p); }
     $('#grid', el).innerHTML = list.length ? [...byDay].map(([d, ps]) => `<div class="section-title" style="margin-top:14px">${d === 'No date' ? d : esc(fmtDate(d))} <span class="muted" style="text-transform:none;letter-spacing:0">· ${ps.length}</span></div>
-      <div class="photo-grid">${ps.map((p) => `<button class="photo-tile ${p.lat == null ? 'unplaced' : ''}" data-id="${p.id}" style="background-image:url(${photoUrl(p)})" title="${esc(p.caption || p.file_name || '')}">${p.caption ? `<span class="badge">${esc(p.caption.slice(0, 28))}</span>` : ''}</button>`).join('')}</div>`).join('')
+      <div class="photo-grid">${ps.map((p) => `<button class="photo-tile ${p.lat == null ? 'unplaced' : ''}" data-id="${p.id}" data-photo-id="${p.id}" style="background-image:url(${photoUrl(p)})" title="${esc(p.caption || p.file_name || '')}">${p.caption ? `<span class="badge">${esc(p.caption.slice(0, 28))}</span>` : ''}</button>`).join('')}</div>`).join('')
       : '<div class="empty"><h3>No photos here yet</h3></div>';
   }
   draw();

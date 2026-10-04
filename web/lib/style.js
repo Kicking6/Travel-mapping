@@ -57,7 +57,8 @@ export function defaultStyle() {
       parks: { show: false, color: '#d9e8cf' },
       buildings: { show: false },
     },
-    routes: Object.fromEntries(TYPES.map((t) => [t.id, { color: t.color, width: t.width, show: true, dash: t.dash ? 'dashed' : 'solid' }])),
+    // simplify: metres of smoothing for this type; null = follow detail.routeSimplify. Walks keep full detail by default.
+    routes: Object.fromEntries(TYPES.map((t) => [t.id, { color: t.color, width: t.width, show: true, dash: t.dash ? 'dashed' : 'solid', simplify: t.id === 'walk' ? 0 : null }])),
     // The palette the route colours came from, and how it was tuned to the background.
     // Picking or tuning it rewrites routes[type].color; a colour edited by hand stays until the next pick.
     palette: { id: 'classic', hue: 0, saturation: 0, lightness: 0, fit: false, contrast: 3 },
@@ -218,6 +219,7 @@ export function validateStyle(spec) {
     if (/palette\.hue$/.test(path) && typeof v === 'number' && !(v >= -180 && v <= 180)) errs.push(`${path} out of range`);
     if (/palette\.(saturation)$/.test(path) && typeof v === 'number' && !(v >= -100 && v <= 100)) errs.push(`${path} out of range`);
     if (/palette\.(lightness)$/.test(path) && typeof v === 'number' && !(v >= -50 && v <= 50)) errs.push(`${path} out of range`);
+    if (/routes\.\w+\.simplify$/.test(path) && v !== null && !(typeof v === 'number' && v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/routeSimplify$/.test(path) && typeof v === 'number' && !(v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/(opacity|grain|vignette)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 1)) errs.push(`${path} must be 0–1`);
   })(spec, 'style');

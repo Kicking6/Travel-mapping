@@ -16,12 +16,13 @@ import { resolveStyle, mergeStyle, PRESETS, applyPreset, applyPalette, ROUTE_PAL
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER = { name: 'trip-atlas', title: 'Trip Atlas', version: '1.0.0' };
-const INSTRUCTIONS = `Trip Atlas holds Rory and Eva's OE trip (Jul 2024 – Sep 2025): routes (drives, walks, buses, boats, ski days, flights), places they stayed, legs (trip sections), album map pages and map styles.
+const INSTRUCTIONS = `Trip Atlas holds Rory and Eva's OE trip (Jul 2024 – Oct 2025): routes (drives, walks, buses, boats, ski days, flights), places they stayed, legs (trip sections), album map pages and map styles.
 - Dates are local calendar dates (YYYY-MM-DD). Trip day 1 is in trip_summary.
 - Find things with list_routes / list_places before changing them; changes are shared with both people immediately.
 - Flights: add_flights takes itineraries like "AKL LAX JFK" (layovers become one leg each).
 - find_missing_travel lists jumps the trip has no route for (usually missing flights), with airport suggestions.
-- Large GPX recordings (> 1.5 MB) belong in the web app's Import page; add_route accepts coordinates or waypoints instead.`;
+- Large GPX recordings (> 1.5 MB) belong in the web app's Import page; add_route accepts coordinates or waypoints instead.
+- Feedback: list_feedback shows what Rory and Eva reported in the app (✎ Feedback); reply_feedback answers or closes a report.`;
 
 class ToolError extends Error {}
 const ok = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data });
@@ -235,6 +236,24 @@ const TOOLS = [
       const q = (where) => ctx.env.DB.prepare(`SELECT id, name, date, type, ROUND(distance_km,1) km, review FROM routes WHERE hidden = 0 AND ${where} ORDER BY date LIMIT 100`).all().then((r) => r.results.map((x) => ({ ...x, review: x.review ? JSON.parse(x.review) : undefined })));
       const [noDate, guessed, dup, unknown, noCountry] = await Promise.all([q('date IS NULL'), q("date_source = 'suggested'"), q('review IS NOT NULL'), q("type = 'other'"), q("country IS NULL AND type != 'flight'")]);
       return ok({ noDate, guessedYear: guessed, possibleDuplicates: dup, unknownType: unknown, noCountry });
+    } },
+  { name: 'list_feedback', title: 'Feedback inbox', annotations: { readOnlyHint: true }, description: 'Reports filed in the app (✎ Feedback): text, kind, urgency, status, the page and the thing clicked (a route id, a map point…), the map camera, captured errors, and any reply. Screenshots are viewable in the app.',
+    inputSchema: S({ status: str('new | triaged | done | wontfix (default: all open)'), kind: str('bug | idea | question') }),
+    async run(ctx, a) {
+      const qs = new URLSearchParams(); if (a.status) qs.set('status', a.status); if (a.kind) qs.set('kind', a.kind);
+      const r = await api(ctx, 'GET', '/api/feedback/all?' + qs);
+      const open = a.status ? r.reports : r.reports.filter((x) => x.status === 'new' || x.status === 'triaged');
+      return ok({ reports: open.map((f) => ({ code: f.code, id: f.id, author: f.author_email, body: f.body, kind: f.kind, criticality: f.criticality, status: f.status, created_at: f.created_at,
+        page: f.route, clicked: f.element_label, subject: f.subject_type ? `${f.subject_type} ${f.subject_id}` : null, map: f.context && f.context.where && f.context.where.map,
+        errors: f.context && f.context.diagnostics, hasScreenshot: !!f.screenshot_key, reply: f.resolution_note })) });
+    } },
+  { name: 'reply_feedback', title: 'Reply to / close feedback', description: 'Reply to a report (the author sees it on their Feedback page) and/or set its status: new, triaged, done, wontfix.',
+    inputSchema: S({ id: int('Report id (TA-<id>)'), reply: str('Reply text'), status: str('new | triaged | done | wontfix') }, ['id']),
+    async run(ctx, a) {
+      if (!a.reply && !a.status) throw new ToolError('Give a reply, a status, or both');
+      if (a.status) await api(ctx, 'PUT', `/api/feedback/${a.id}/status`, { status: a.status, note: a.reply });
+      else await api(ctx, 'PUT', `/api/feedback/${a.id}/reply`, { note: a.reply });
+      return ok({ ok: true, code: 'TA-' + a.id });
     } },
   { name: 'set_trip', title: 'Trip settings', description: 'Rename the trip or move day 1 (re-dates every "day N" route).', inputSchema: S({ trip_name: str('Name'), trip_start: date('Day 1') }),
     async run(ctx, a) { return ok(await api(ctx, 'PATCH', '/api/trip', a)); } },

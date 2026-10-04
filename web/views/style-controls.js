@@ -9,6 +9,7 @@ import { SHAPES, GLYPHS } from '../lib/pins.js';
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const POS = [['top-left', 'Top left'], ['top-right', 'Top right'], ['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right']];
 const DASH_OPTS = Object.keys(DASHES).map((d) => [d, d === 'dashdot' ? 'dash-dot' : d]);
+const DETAIL_OPTS = [['', 'Same as all routes'], ['0', 'Full detail'], ['10', '10 m'], ['25', '25 m'], ['50', '50 m'], ['100', '100 m'], ['250', '250 m'], ['500', '500 m'], ['1000', '1 km'], ['2000', '2 km'], ['5000', '5 km'], ['10000', '10 km']];
 
 // Row helpers: c = colour, t = toggle, r = range, n = number, s = select, ca = colour or auto
 const c = (path, label) => ({ k: 'color', path, label });
@@ -33,7 +34,9 @@ export function sections(spec, placeKinds) {
       r('detail.softness', 'Coast softness (with a smoothed coastline)', 0, 20, 0.5, 'px'),
       r('detail.baseLevel', 'Base-map detail', 0, 12, 1, '', levelKm),
       { k: 'note', text: 'Base-map detail caps how much the roads, borders and lakes are drawn — slide left for a cleaner, more generalised map at any zoom.' },
-      r('detail.routeSimplify', 'Smooth our routes', 0, 20000, 250, '', metres),
+      r('detail.routeSimplify', 'Smooth our routes (all types)', 0, 20000, 250, '', metres),
+      { k: 'note', text: 'Line detail per type — walks can stay crisp while long drives are smoothed. “Same as all” follows the slider above.' },
+      ...TYPES.filter((ty) => ty.id !== 'flight').map((ty) => ({ k: 'select', path: `routes.${ty.id}.simplify`, num: true, label: ty.label, options: DETAIL_OPTS })),
     ] },
     { id: 'labels', title: 'Place names', rows: [
       t('labels.show', 'Show place names'), s('labels.density', 'How many', [['countries', 'Countries only'], ['cities', 'Countries, regions & cities'], ['all', 'Everything']]),
@@ -135,7 +138,7 @@ function rowHtml(row, spec) {
     case 'toggle': return `<label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label>`;
     case 'range': return `<label class="range-line"><span>${esc(row.label)}</span><input type="range" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"><output>${row.show ? row.show(v) : fmt(v) + row.unit}</output></label>`;
     case 'number': return `<label class="style-line"><span>${esc(row.label)}</span><span></span><input class="input sm" type="number" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"></label>`;
-    case 'select': return `<label class="field"><span class="label">${esc(row.label)}</span><select class="select sm" data-path="${row.path}">${row.options.map(([id, l]) => `<option value="${esc(id)}" ${String(v) === String(id) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+    case 'select': return `<label class="field"><span class="label">${esc(row.label)}</span><select class="select sm" data-path="${row.path}"${row.num ? ' data-num="1"' : ''}>${row.options.map(([id, l]) => `<option value="${esc(id)}" ${(v == null ? '' : String(v)) === String(id) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
     case 'line': {
       const b = get(spec, row.base);
       return `<div class="style-line"><span><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${row.base}.show" ${b.show ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label></span><input type="color" data-path="${row.base}.color" value="${esc(b.color)}"><input class="input sm" type="number" data-path="${row.base}.width" min="0" max="20" step="0.1" value="${b.width}"></div>${row.extra.map((x) => rowHtml(x, spec)).join('')}`;
@@ -214,7 +217,7 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
       return;
     }
     if (!path) return;
-    const v = el.type === 'checkbox' ? el.checked : el.type === 'number' || el.type === 'range' ? +el.value : el.value;
+    const v = el.type === 'checkbox' ? el.checked : el.dataset.num ? (el.value === '' ? null : +el.value) : el.type === 'number' || el.type === 'range' ? +el.value : el.value;
     if (el.type === 'range') { const out = el.parentElement.querySelector('output'); const row = secs.flatMap((x) => x.rows).find((x) => x.path === path); if (out) out.textContent = row && row.show ? row.show(v) : fmt(v) + ((row && row.unit) || ''); }
     onChange(path, v);
   };

@@ -370,3 +370,10 @@ details.advanced details.style-group:last-child { border-bottom: 0; }
 .kind-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; gap: 6px; margin-top: 5px; }
 .kind-line input[type=color] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); cursor: pointer; }
 .range-line output { white-space: nowrap; }
+
+/* Explore → Pins… : the style's place controls floating over the map */
+.pins-pop { top: 60px; left: 12px; width: 340px; max-width: calc(100% - 24px); max-height: calc(100% - 84px); overflow: auto; padding: 10px 14px 14px; }
+.pins-pop[hidden] { display: none; }
+.pins-pop-head { position: sticky; top: -10px; background: var(--card); padding: 4px 0 6px; z-index: 1; gap: 8px; }
+.pins-pop-head .help { margin-left: auto; }
+.pins-pop details.advanced > summary .help { display: none; }

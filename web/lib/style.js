@@ -62,6 +62,7 @@ export function defaultStyle() {
     routeCasing: { show: true, color: '#ffffff', width: 1.5 },
     places: {
       show: true, labels: false, stroke: '#ffffff', strokeWidth: 1.5, opacity: 1, shadow: true,
+      scale: 1.6,                          // every pin at once, on top of each kind's own size
       kinds: Object.fromEntries(PLACE_KINDS.map((k) => [k.id, { color: k.color, size: k.size, show: true, shape: k.shape, glyph: k.glyph, glyphColor: '#ffffff' }])),
       label: { field: 'name', size: 11, color: null, halo: null, haloWidth: 1.4, font: 'Noto Sans Regular', position: 'top', uppercase: false, minZoom: 0 },
       numbering: false,                    // number stays in date order (shown by the "Night number" symbol and labels)
@@ -149,7 +150,7 @@ export const PRESETS = [
   { id: 'swiss', label: 'Swiss minimal', spec: {
     land: '#f2f2f0', water: '#d6dde3', labels: { show: true, density: 'countries', color: '#1a1a1a' },
     layers: { countries: { show: true, color: '#ffffff', width: 1.6 } },
-    routes: ramp(['#e30613', '#1a1a1a', '#e30613', '#1a1a1a', '#0057a8', '#e30613', '#1a1a1a', '#0057a8', '#9a9a9a', '#9a9a9a']),
+    routes: ramp(['#e30613', '#1a1a1a', '#f39200', '#1a1a1a', '#0057a8', '#00843d', '#6a1b9a', '#0098d8', '#9a9a9a', '#9a9a9a']),
     routeCasing: { show: false }, routeFx: { cap: 'butt' },
     type: { countryFont: 'Noto Sans Bold', countriesUppercase: true, countryLetterSpacing: 0.05 },
     decor: { titleFont: 'sans', titleSize: 34, titlePosition: 'top-left', legend: { show: true } },
@@ -210,6 +211,7 @@ export function validateStyle(spec) {
     if (typeof v === 'string' && (v.startsWith('#') || /(color|land|water|halo|background|shadow|highlight|accent|space|from|via|to|stroke|wood|grass|farmland|ice|sand|wetland|rock)$/i.test(path)) && !HEX.test(v)
       && !/(blend|mode|font|position|subtitle|density|cap|dash|basemap|projection|titleFont|titleColor|shape|glyph|field|coastline)$/i.test(path)) errs.push(`${path} is not a #rrggbb colour`);
     if (/(width|size|spacing)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 400)) errs.push(`${path} out of range`);
+    if (/places\.scale$/.test(path) && typeof v === 'number' && !(v >= 0.2 && v <= 6)) errs.push(`${path} must be 0.2–6`);
     if (/routeSimplify$/.test(path) && typeof v === 'number' && !(v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/(opacity|grain|vignette)$/i.test(path) && typeof v === 'number' && !(v >= 0 && v <= 1)) errs.push(`${path} must be 0–1`);
   })(spec, 'style');
@@ -220,6 +222,9 @@ export function validateStyle(spec) {
 }
 
 // Colour for a moment in the trip (gradient mode 'trip'): from → via → to.
+// A pin's drawn height in px (before the map's pixel ratio): its kind's size × the all-pins scale.
+export const pinPx = (kind, places) => kind.size * 2.6 * ((places && places.scale) || 1);
+
 export function rampColor(g, t) {
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const mix = (a, b, f) => '#' + a.map((x, i) => Math.round(x + (b[i] - x) * f).toString(16).padStart(2, '0')).join('');

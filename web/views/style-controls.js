@@ -50,6 +50,7 @@ export function sections(spec, placeKinds) {
     ] },
     { id: 'places', title: 'Places (accommodation)', rows: [
       t('places.show', 'Show places'), t('places.labels', 'Label places'),
+      r('places.scale', 'Pin size (all pins)', 0.5, 5, 0.05, '×'),
       { k: 'note', text: 'Per kind: show · colour · size · shape · symbol · symbol colour.' },
       ...placeKinds.map((k) => ({ k: 'kind', id: k, label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label })),
     ] },

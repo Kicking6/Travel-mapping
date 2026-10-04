@@ -14,7 +14,7 @@ import { routeEditor } from './route-editor.js';
 const QUEUES = [
   { id: 'travel', label: 'Missing travel', test: () => false },
   { id: 'nodate', label: 'No date', test: (r) => !r.date },
-  { id: 'guess', label: 'Year guessed', test: (r) => r.date_source === 'suggested' },
+  { id: 'guess', label: 'Date guessed', test: (r) => r.date_source === 'suggested' },
   { id: 'dup', label: 'Possible duplicates', test: (r) => r.review && r.review.possibleDuplicateName },
   { id: 'type', label: 'Unknown type', test: (r) => r.type === 'other' },
   { id: 'country', label: 'No country', test: (r) => !r.country && r.type !== 'flight' },
@@ -145,6 +145,7 @@ export async function render(el, params) {
       onClose: () => { selected.clear(); drawer.hidden = true; draw(); },
       onSaved: () => loadRoutes(true),
       onDeleted: () => { selected.clear(); loadRoutes(true); },
+      onLineSaved: () => atlas.setRoutes(store.routes.filter((r) => !r.hidden)),
     });
     requestAnimationFrame(() => atlas.map.resize());
   }

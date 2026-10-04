@@ -8,7 +8,7 @@
 //  - filtering is a layer filter on ids, never a setData — re-tiling 100k
 //    points on each keystroke is what makes maps feel sticky;
 //  - selection / hover / dim are feature-state.
-import { BASEMAPS, PLACE_KINDS, DASHES, rampColor } from '../lib/style.js';
+import { BASEMAPS, PLACE_KINDS, DASHES, rampColor, pinPx } from '../lib/style.js';
 import { loadCountries } from '../lib/countries.js';
 import { SHAPES, pinParts } from '../lib/pins.js';
 import { simplify } from '../lib/geo.js';
@@ -258,7 +258,7 @@ function staysLine(places, spec) {
 // One bitmap per kind, drawn at the map's pixel ratio so pins are crisp on
 // screen and at print resolution. The anchor point sits at the image centre.
 function pinImage(kind, places, pr) {
-  const px = kind.size * 2.6;
+  const px = pinPx(kind, places);
   const sh = SHAPES[kind.shape] || SHAPES.circle;
   const sw = places.strokeWidth, pad = sw + (places.shadow ? 3 : 1);
   const w = Math.ceil((px + pad * 2) * pr);
@@ -409,7 +409,9 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setL(map, 'ta-place-num', 'visibility', vis(overlay && pl.show));
   setP(map, 'ta-place-num', 'text-color', '#ffffff');
   const pos = { top: ['bottom', [0, -1]], bottom: ['top', [0, 1]], left: ['right', [-1, 0]], right: ['left', [1, 0]] }[lb.position] || ['bottom', [0, -1]];
-  const r = Math.max(...Object.values(pl.kinds).map((k) => k.size)) * 1.3 / lb.size;
+  const r = Math.max(...Object.values(pl.kinds).map((k) => k.size)) * 1.3 * (pl.scale || 1) / lb.size;
+  // The number scales with its pin; numOffset is in ems, so it follows along.
+  setL(map, 'ta-place-num', 'text-size', 9 * (pl.scale || 1));
   setL(map, 'ta-place-labels', 'visibility', vis(overlay && pl.show && pl.labels));
   setL(map, 'ta-place-labels', 'text-anchor', pos[0]);
   setL(map, 'ta-place-labels', 'text-offset', [pos[1][0] * (r + 0.4), pos[1][1] * (r + 0.4)]);

@@ -90,7 +90,8 @@ function tidy(s) {
     .trim();
 }
 function titleCase(s) {
-  return s.replace(/\b([a-z])([a-z']*)/g, (_, a, b) => a.toUpperCase() + b);
+  // Unicode-aware word start: JS \b treats “ö” as a break, which gave “GöTeborg”.
+  return s.replace(/(?<![\p{L}\p{N}'])(\p{Ll})([\p{L}']*)/gu, (_, a, b) => a.toUpperCase() + b);
 }
 
 const NOISE = /\b(gps coords|prt \d+|part \d+)\b/gi;

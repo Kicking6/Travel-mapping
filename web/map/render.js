@@ -12,7 +12,7 @@
 // grain, vignette, border) → decor (title, subtitle, legend, scale bar,
 // north arrow) → encode (PNG/JPEG/WebP/PDF/SVG/ZIP of layers).
 import { createAtlas } from './atlas.js';
-import { TITLE_FONTS, DASHES, PLACE_KINDS } from '../lib/style.js';
+import { TITLE_FONTS, DASHES, PLACE_KINDS, pinPx } from '../lib/style.js';
 import { kindOf, visiblePlaces } from './atlas.js';
 import { pinParts, mapPath } from '../lib/pins.js';
 import { typeById } from '../lib/types.js';
@@ -140,7 +140,7 @@ function projectVector(o, project, ratio) {
   vis.forEach((p) => {
     const k = kindOf(s, p.kind);
     const [x, y] = project([p.lon, p.lat]);
-    const parts = pinParts(k, { x, y, px: k.size * 2.6 * ratio });
+    const parts = pinParts(k, { x, y, px: pinPx(k, s.places) * ratio });
     shapes.push({ d: parts.shape, fill: k.color, stroke: s.places.strokeWidth > 0 ? s.places.stroke : null, strokeWidth: s.places.strokeWidth * ratio, opacity: s.places.opacity, name: p.name });
     if (parts.glyph) shapes.push({ d: parts.glyph, fill: k.glyphColor || '#ffffff', opacity: s.places.opacity });
   });
@@ -252,7 +252,7 @@ function drawDecor(ctx, W, H, o, info, unit, bleedPx) {
         if (DASHES[it.dash]) ctx.setLineDash(DASHES[it.dash].map((d) => Math.max(d, 0.4) * 3 * unit));
         ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x + sw, cy); ctx.stroke();
       } else {
-        const px = Math.min(row * 1.05, it.pin.size * 2.6 * unit);
+        const px = Math.min(row * 1.05, pinPx(it.pin, s.places) * unit);
         const parts = pinParts(it.pin, { x: x + sw / 2, y: cy + ((SHAPE_BOTTOM.has(it.pin.shape) ? px / 2 : 0)), px });
         const shape = new Path2D(parts.shape);
         ctx.globalAlpha = s.places.opacity; ctx.fillStyle = it.pin.color; ctx.fill(shape);

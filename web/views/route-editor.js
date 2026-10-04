@@ -7,7 +7,7 @@ const SOURCE_LABEL = {
   manual: 'set by hand', suggested: 'a guess — please check',
 };
 
-export function routeEditor(host, routes, { onClose, onSaved, onDeleted }) {
+export function routeEditor(host, routes, { onClose, onSaved, onDeleted, onLineSaved }) {
   const one = routes.length === 1 ? routes[0] : null;
   const same = (k) => (routes.every((r) => (r[k] ?? null) === (routes[0][k] ?? null)) ? routes[0][k] ?? '' : null);
   const val = (k) => { const v = same(k); return v == null ? '' : v; };
@@ -42,7 +42,7 @@ export function routeEditor(host, routes, { onClose, onSaved, onDeleted }) {
           <input type="color" name="color" value="${esc(color || typeById(routes[0].type).color)}" ${color ? '' : 'disabled'}>
           <input class="input sm" type="number" name="width" min="0.25" max="20" step="0.25" placeholder="width" value="${esc(val('width'))}" title="Line width (blank = the style's width for this type)" style="width:84px">
         </div>
-        <span class="hint">Off = the map style's colour for this transport type.</span>
+        <span class="hint">Off = the map style's colour for this transport type. Saves as you change it. <span data-linesaved></span></span>
       </div>
       <label class="switch"><input type="checkbox" name="hidden" ${same('hidden') ? 'checked' : ''}><span class="track"></span>Hidden — keep it, but leave it off every map</label>
       ${one ? `<div class="kv-list help">
@@ -59,7 +59,32 @@ export function routeEditor(host, routes, { onClose, onSaved, onDeleted }) {
 
   const form = $('form', host);
   const colorInput = form.elements.color;
-  form.elements.customColor.onchange = (e) => { colorInput.disabled = !e.target.checked; };
+  // The line's colour and width save straight away, like the style editor — no Save press.
+  let lineSaved = { color: color || null, width: val('width') === '' ? null : +val('width') };
+  let lineTimer = null;
+  const saveLine = () => {
+    clearTimeout(lineTimer);
+    lineTimer = setTimeout(async () => {
+      const f = form.elements, fields = {};
+      const wantColor = f.customColor.checked ? f.color.value.toLowerCase() : null;
+      const wantWidth = f.width.value === '' ? null : +f.width.value;
+      if (wantColor !== lineSaved.color) fields.color = wantColor;
+      if (wantWidth !== lineSaved.width && !(wantWidth !== null && !(wantWidth >= 0.25 && wantWidth <= 20))) fields.width = wantWidth;
+      if (!Object.keys(fields).length) return;
+      const note = $('[data-linesaved]', host);
+      note.textContent = 'Saving…';
+      try {
+        await api('PATCH', '/api/routes', { ids: routes.map((r) => r.id), fields });
+        lineSaved = { ...lineSaved, ...fields };
+        for (const r of routes) Object.assign(r, fields);
+        note.textContent = 'Saved';
+        onLineSaved && onLineSaved(fields);
+      } catch (err) { note.textContent = ''; toast(err.message, 'err'); }
+    }, 350);
+  };
+  form.elements.customColor.onchange = (e) => { colorInput.disabled = !e.target.checked; saveLine(); };
+  colorInput.addEventListener('input', saveLine);
+  form.elements.width.addEventListener('input', saveLine);
   $('[data-close]', host).onclick = onClose;
 
   const notDup = $('[data-notdup]', host);
@@ -82,8 +107,9 @@ export function routeEditor(host, routes, { onClose, onSaved, onDeleted }) {
     if (f.leg_id.value !== '__keep' && f.leg_id.value !== String(same('leg_id') ?? '')) fields.leg_id = f.leg_id.value ? +f.leg_id.value : null;
     for (const k of ['country', 'region']) if (f[k].value !== String(val(k)) || (same(k) === null && f[k].value)) fields[k] = f[k].value || null;
     const wantColor = f.customColor.checked ? f.color.value.toLowerCase() : null;
-    if (wantColor !== (color || null)) fields.color = wantColor;
-    if (f.width.value !== String(val('width'))) fields.width = f.width.value === '' ? null : +f.width.value;
+    if (wantColor !== lineSaved.color) fields.color = wantColor;
+    const wantWidth = f.width.value === '' ? null : +f.width.value;
+    if (wantWidth !== lineSaved.width) fields.width = wantWidth;
     const hid = f.hidden.checked ? 1 : 0;
     if (same('hidden') === null ? f.hidden.checked : hid !== (same('hidden') ? 1 : 0)) fields.hidden = hid;
     if (!Object.keys(fields).length) { toast('Nothing changed'); return; }

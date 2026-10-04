@@ -59,7 +59,7 @@ export function curve(coords, level) {
 }
 
 // How far a short walk has turned into a dot (TA-4): 0 = still a line, 1 = a
-// dot. `share` is the walk's size as a fraction of the map view; it starts to
+// dot. `share` is the distance between the walk's extreme points as a fraction of the map width; it starts to
 // fade below `below` and is a dot by 70% of that — eased, so it never pops.
 export function walkPoiAmount(share, below) {
   const t = Math.max(0, Math.min(1, (below - share) / (below * 0.3)));

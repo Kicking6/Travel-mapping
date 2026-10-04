@@ -116,8 +116,8 @@ every renderer keeps reading the per-type colours; a hand-edited colour lasts un
 (metres; `null` = follow `detail.routeSimplify`, walks default to `0` = full detail) — `routeCoords()` in
 atlas.js applies it for the map, the film and the PDF/SVG export alike.
 `detail.routeCurve` (0–5) then rounds the corners with Chaikin cutting (`curve()` in geo.js; each step doubles
-the points; flights excluded). `routeFx.walkPoi` fades a walk into a dot at its middle once it is under `below`
-(5%) of the map view's diagonal (`walkPoiAmount()` in geo.js): on screen it is the per-walk feature-state `poi`,
+the points; flights excluded). `routeFx.walkPoi` fades a walk into a dot at its middle once its extreme points are under `below`
+(5%) of the visible map width (`walkPoiAmount()` in geo.js): on screen it is the per-walk feature-state `poi`,
 driven by zoom in `createAtlas`; the PDF/SVG export (`projectVector`) uses the same maths with opacities.
 
 ## Feedback (from Site Scout)

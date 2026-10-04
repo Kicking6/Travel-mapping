@@ -215,8 +215,9 @@ function routeFeatures(routes, spec) {
 }
 
 // ── Short walks fade into a dot (TA-4) ───────────────────────────────────
-// A walk's size is its bounding-box diagonal as a share of the map view's
-// diagonal. At `below` (5%) it starts to fade; by 70% of that it is a dot.
+// A walk's size is the distance between its extreme points (the corners of its
+// bounding box) as a share of the visible map width. At `below` (5%) it starts
+// to fade; by 70% of that it is a dot.
 // The fade follows the zoom continuously, so it is smooth, not a pop.
 const WORLD_PX = 512; // MapLibre's world size at zoom 0
 const merc = ([lon, lat]) => [(lon + 180) / 360, 0.5 - Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360)) / (2 * Math.PI)];
@@ -237,17 +238,6 @@ function walkPoiFeatures(routes, spec) {
     feats.push({ type: 'Feature', properties: { id: r.id, color: r.color || ts.color || '#c0392b' }, geometry: { type: 'Point', coordinates: r.coords[Math.floor(r.coords.length / 2)] } });
   }
   return { type: 'FeatureCollection', features: feats, info };
-}
-
-function endpointFeatures(routes, spec) {
-  if (!spec.routeFx.endpoints.show) return { type: 'FeatureCollection', features: [] };
-  const feats = [];
-  for (const r of routes) {
-    if (r.type === 'flight' || !r.coords.length || (spec.routes[r.type] && spec.routes[r.type].show === false)) continue;
-    feats.push({ type: 'Feature', properties: { id: r.id }, geometry: { type: 'Point', coordinates: r.coords[0] } });
-    feats.push({ type: 'Feature', properties: { id: r.id }, geometry: { type: 'Point', coordinates: r.coords[r.coords.length - 1] } });
-  }
-  return { type: 'FeatureCollection', features: feats };
 }
 
 export const kindOf = (spec, kind) => spec.places.kinds[kind] || spec.places.kinds.other || PLACE_KINDS[PLACE_KINDS.length - 1];
@@ -350,7 +340,6 @@ function addOurLayers(map, spec) {
   const waterId = firstOf(map, (l) => l['source-layer'] === 'water' && l.type === 'fill');
   const add = (src, def) => { if (!map.getSource(src)) map.addSource(src, def); };
   add('ta-routes', { type: 'geojson', data: EMPTY, promoteId: 'id', tolerance: 0.2, lineMetrics: true });
-  add('ta-ends', { type: 'geojson', data: EMPTY, promoteId: 'id' });
   add('ta-walkpoi', { type: 'geojson', data: EMPTY, promoteId: 'id' });
   add('ta-places', { type: 'geojson', data: EMPTY, promoteId: 'id' });
   add('ta-active', { type: 'geojson', data: EMPTY, lineMetrics: true });
@@ -378,7 +367,6 @@ function addOurLayers(map, spec) {
   }
   map.addLayer({ id: 'ta-line-grad', type: 'line', source: 'ta-routes', layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: {} }, firstLabel);
   map.addLayer({ id: 'ta-arrows', type: 'symbol', source: 'ta-routes', layout: { 'symbol-placement': 'line', 'icon-image': 'ta-arrow', 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map', visibility: 'none' }, paint: {} });
-  map.addLayer({ id: 'ta-ends', type: 'circle', source: 'ta-ends', paint: {} });
   map.addLayer({ id: 'ta-walkpoi', type: 'circle', source: 'ta-walkpoi', paint: {} });
   map.addLayer({ id: 'ta-active-casing', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['+', ['get', 'width'], 3] } });
   map.addLayer({ id: 'ta-active', type: 'line', source: 'ta-active', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] } });
@@ -435,15 +423,6 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setP(map, 'ta-arrows', 'icon-halo-color', cs.color);
   setP(map, 'ta-arrows', 'icon-halo-width', 1);
   map.setFilter('ta-arrows', withVis(null));
-
-  setL(map, 'ta-ends', 'visibility', vis(overlay && fx.endpoints.show));
-  setP(map, 'ta-ends', 'circle-radius', fx.endpoints.size);
-  setP(map, 'ta-ends', 'circle-color', fx.endpoints.color);
-  setP(map, 'ta-ends', 'circle-stroke-color', fx.endpoints.stroke);
-  setP(map, 'ta-ends', 'circle-stroke-width', 1.5);
-  setP(map, 'ta-ends', 'circle-opacity', ['-', 1, POI]);
-  setP(map, 'ta-ends', 'circle-stroke-opacity', ['-', 1, POI]);
-  map.setFilter('ta-ends', withVis(null));
 
   const wp = fx.walkPoi;
   setL(map, 'ta-walkpoi', 'visibility', vis(overlay && wp.show));
@@ -566,20 +545,19 @@ export async function createAtlas(container, {
   const poiNow = new Map();
   function updateWalkPoi(force = false) {
     const wp = current.routeFx.walkPoi;
-    const box = map.getContainer(), diag = Math.hypot(box.clientWidth, box.clientHeight);
+    const width = map.getContainer().clientWidth;
     if (force) poiNow.clear();
     const worldPx = WORLD_PX * 2 ** map.getZoom();
     for (const w of walkInfo) {
-      const t = wp && wp.show && diag ? walkPoiAmount((w.unit * worldPx) / diag, wp.below) : 0;
+      const t = wp && wp.show && width ? walkPoiAmount((w.unit * worldPx) / width, wp.below) : 0;
       const q = Math.round(t * 200) / 200;
       if (poiNow.get(w.id) === q) continue;
       poiNow.set(w.id, q);
-      for (const source of ['ta-routes', 'ta-ends', 'ta-walkpoi']) map.setFeatureState({ source, id: w.id }, { poi: q });
+      for (const source of ['ta-routes', 'ta-walkpoi']) map.setFeatureState({ source, id: w.id }, { poi: q });
     }
   }
   function setRouteData() {
     map.getSource('ta-routes').setData(routeFeatures(routes, current));
-    map.getSource('ta-ends').setData(endpointFeatures(routes, current));
     const wpf = walkPoiFeatures(routes, current);
     walkInfo = wpf.info;
     map.getSource('ta-walkpoi').setData({ type: 'FeatureCollection', features: wpf.features });

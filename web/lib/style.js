@@ -99,9 +99,8 @@ export function defaultStyle() {
       glow: { show: false, color: null, width: 6, blur: 6, opacity: 0.35 }, // color null = the route's own
       gradient: { mode: 'off', from: '#2a9d8f', via: '#e9c46a', to: '#e76f51' }, // off | trip (colour by date) | route (fade along each line)
       arrows: { show: false, spacing: 120, size: 0.7, color: null },
-      endpoints: { show: false, size: 3.5, color: '#ffffff', stroke: '#16202b' },
       cap: 'round',                        // round | butt | square
-      // A walk drawn smaller than `below` of the map view (its extent / the view's diagonal) fades into a dot (TA-4).
+      // A walk whose extreme points are closer than `below` of the visible map width fades into a dot (TA-4).
       walkPoi: { show: true, below: 0.05, size: 5 },
     },
     finish: {                              // applied on export (and the print preview)
@@ -143,7 +142,7 @@ export const PRESETS = [
   { id: 'blueprint', label: 'Blueprint', spec: {
     land: '#1f4e79', water: '#173d61', labels: { color: '#dbe8f5', halo: '#1f4e79' },
     layers: { countries: { color: '#9cc2e5', width: 0.7 }, states: { show: true, color: '#5f8fbf', width: 0.4 } },
-    routes: ramp(['#ffffff']), routeCasing: { show: false }, routeFx: { endpoints: { show: true, color: '#1f4e79', stroke: '#ffffff' } },
+    routes: ramp(['#ffffff']), routeCasing: { show: false },
     type: { font: 'Noto Sans Regular', uppercase: true, letterSpacing: 0.15, countryLetterSpacing: 0.3 },
     decor: { titleFont: 'mono', titleColor: '#ffffff', titleUppercase: true, titleSpacing: 0.15 },
   } },
@@ -174,7 +173,7 @@ export const PRESETS = [
     relief: { show: true, opacity: 0.6, exaggeration: 0.7 }, layers: { countries: { color: '#7c8576' } },
   } },
   { id: 'journey', label: 'Journey gradient', spec: {
-    land: '#f6f4ef', water: '#c9dbe6', routeFx: { gradient: { mode: 'trip' }, endpoints: { show: false } },
+    land: '#f6f4ef', water: '#c9dbe6', routeFx: { gradient: { mode: 'trip' } },
     visited: { show: true, color: '#efe2c6', opacity: 0.6 }, decor: { legend: { show: false } },
   } },
 ];

@@ -128,14 +128,14 @@ function projectVector(o, project, ratio, W, H) {
     if (!ts || ts.show === false) continue;
     const pts = thin(routeCoords(r, s).map(project));
     const width = (r.width || ts.width) * ratio, dash = DASHES[ts.dash] ? DASHES[ts.dash].map((d) => Math.max(d, 0.1) * width) : null;
-    // A short walk fades into a dot, exactly as on screen (TA-4): same share-of-view maths.
+    // A short walk fades into a dot, exactly as on screen (TA-4): same maths: extreme-point distance as a share of the map width.
     const wp = s.routeFx.walkPoi;
     let poi = 0;
     if (r.type === 'walk' && wp && wp.show && r.coords.length > 1) {
       let [w, so, e, n] = r.bbox || [180, 90, -180, -90];
       if (!r.bbox) for (const [lo, la] of r.coords) { if (lo < w) w = lo; if (lo > e) e = lo; if (la < so) so = la; if (la > n) n = la; }
       const [x0, y0] = project([w, so]), [x1, y1] = project([e, n]);
-      poi = walkPoiAmount(Math.hypot(x1 - x0, y1 - y0) / Math.hypot(W, H), wp.below);
+      poi = walkPoiAmount(Math.hypot(x1 - x0, y1 - y0) / W, wp.below);
     }
     const lineOp = s.routeOpacity * (1 - poi);
     if (lineOp > 0.004) {

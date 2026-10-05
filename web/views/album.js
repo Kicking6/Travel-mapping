@@ -122,7 +122,7 @@ async function editor(el, id) {
       <form class="ws-panel-body" id="form" autocomplete="off" style="padding:14px 16px;display:flex;flex-direction:column;gap:14px">
         <div class="field"><label>Name</label><input class="input" name="name" value="${esc(m.name)}"></div>
         <div class="field"><label>Title printed on the map <span class="muted">(optional)</span></label><input class="input" name="title" value="${esc(m.title || '')}"></div>
-        <div class="field"><label>Custom subtitle <span class="muted">(shown when the style's subtitle is “Custom”)</span></label><input class="input" name="subtitle" value="${esc(m.overrides.subtitle || '')}"></div>
+        <div class="field"><label>Custom subtitle <span class="muted">(shown when the preset's subtitle is “Custom”)</span></label><input class="input" name="subtitle" value="${esc(m.overrides.subtitle || '')}"></div>
         <div class="style-group stack"><div class="section-title">What's on it</div>
           <div class="field-row"><div class="field"><label>From</label><input class="input" type="date" name="from" value="${esc(m.filter.from || '')}"></div><div class="field"><label>To</label><input class="input" type="date" name="to" value="${esc(m.filter.to || '')}"></div></div>
           ${store.legs.length ? `<div class="field"><label>Legs</label><div class="chip-row">${store.legs.map((l) => `<button type="button" class="chip filter-chip ${m.filter.legs.includes(l.id) ? 'on' : ''}" data-leg="${l.id}">${esc(l.name)}</button>`).join('')}</div></div>` : ''}
@@ -145,8 +145,8 @@ async function editor(el, id) {
           <div class="toolbar"><button type="button" class="btn sm" id="fit">Fit to routes</button><button type="button" class="btn sm" id="flat">Reset tilt & north up</button></div>
           <div class="help" id="camInfo"></div>
         </div>
-        <div class="style-group stack"><div class="section-title">Style</div>
-          <div class="filter-row"><select class="select" name="style_id">${store.styles.map((s) => `<option value="${s.id}" ${s.id === (m.style_id || store.styles[0].id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select><a class="btn sm" id="editStyle">Edit style</a></div>
+        <div class="style-group stack"><div class="section-title">Preset</div>
+          <div class="filter-row"><select class="select" name="style_id">${store.styles.map((s) => `<option value="${s.id}" ${s.id === (m.style_id || store.styles[0].id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select><a class="btn sm" id="editStyle">Edit preset</a></div>
           <p class="help" id="tweaks"></p>
         </div>
         <div class="stack">
@@ -267,7 +267,7 @@ async function editor(el, id) {
         } else set(m.overrides.style, path, v);
         atlas.setSpec(spec()); refreshPaperInfo(); save();
       },
-      onReplace: () => toast('Presets apply to a whole style — use Map styles → Copy, then pick it here', 'err'),
+      onReplace: () => toast('Ready-made looks apply to a whole preset — use Presets → Save as new preset, then pick it here', 'err'),
     });
     host.insertAdjacentHTML('afterbegin', `<div class="notice info" style="margin:10px 0">Changes here apply to <strong>this page only</strong>, on top of “${esc(store.style(m.style_id).name)}”. <button type="button" class="btn sm" id="resetLook">Reset this page's look</button></div>`);
     $('#resetLook', el).onclick = () => { m.overrides.style = {}; atlas.setSpec(spec()); drawLook(); refreshPaperInfo(); save(); };
@@ -304,7 +304,7 @@ async function editor(el, id) {
     if (dd) downloadRouteData(mapRoutes(m), dd.dataset.data, m.name, spec());
   });
   form.addEventListener('submit', (e) => e.preventDefault());
-  $('#editStyle', el).onclick = () => { location.hash = `#/styles/${m.style_id || store.styles[0].id}`; };
+  $('#editStyle', el).onclick = () => { location.hash = `#/map/${m.style_id || store.styles[0].id}`; };
   $('#fit', el).onclick = () => { const b = unionBbox(mapRoutes(m).map((r) => r.bbox)); if (b) fitFrame(b, true); };
   $('#flat', el).onclick = () => { atlas.map.easeTo({ pitch: 0, bearing: 0, duration: 500 }); };
 

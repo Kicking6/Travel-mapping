@@ -29,9 +29,16 @@ Feed this file at the start of every session. It describes current state; keep i
     spec, defaults, presets, validation), `countries.js` (Natural Earth country lookup),
     `outputs.js` (PNG/JPEG dpi, PDF, SVG, ZIP, GPX/GeoJSON/KML writers), `photos.js` (photo
     placement), `film.js` (the trip film's timeline and camera).
-  - Views: `explore` (#/map), `album` (+ `export-dialog`), `styles` (+ `style-controls`, the
-    declarative control list shared with an album page's "Look" tab), `draw`, `photos`, `film`,
-    `import`, `review`, `settings`, `route-editor`.
+  - Views: `styles` = **Presets** (#/map, the home page; + `style-controls`, the declarative control
+    list shared with an album page's "Look" tab), `album` (+ `export-dialog`), Import's three sub-tabs
+    `import` (#/import), `explore` (#/routes, "Edit routes": list + `route-editor`) and `draw`
+    (#/draw), `review`, `settings`. `film` and `photos` are switched off (`OFF` in app.js redirects
+    to #/map; code kept). Old `#/styles/<id>` links redirect to `#/map/<id>`.
+  - UI wording: a saved map style is a **preset** (Rory and Eva's word). The Presets page edits a
+    draft and saves only on **Update preset** / **Save as new preset…**; unsaved drafts live in
+    memory per preset (• in the picker) and survive leaving the page. The essentials (land & water,
+    boundaries, routes, stays & POIs, place names, line detail & curve) are open at the top;
+    everything else is under "More options".
   - `web/data/airports.json` — IATA → coords, from the old generator's GlobalAirportDatabase
     (`scripts/build-airports.mjs`, plus EZE which it lacked).
 - `migrations/` — D1 schema, numbered. Always add a new migration; never edit an applied one.
@@ -115,8 +122,10 @@ every renderer keeps reading the per-type colours; a hand-edited colour lasts un
 `places.scale` sizes every pin at once (`pinPx`). Line detail is per type: `routes[type].simplify`
 (metres; `null` = follow `detail.routeSimplify`, walks default to `0` = full detail) — `routeCoords()` in
 atlas.js applies it for the map, the film and the PDF/SVG export alike.
-`detail.routeCurve` (0–5) then rounds the corners with Chaikin cutting (`curve()` in geo.js; each step doubles
-the points; flights excluded). `routeFx.walkPoi` fades a walk into a dot at its middle once its extreme points are under `below`
+Water: `water` = oceans; `lakes` (null = same) fills every other water class; `waterDetail.rivers.color`
+(null = lakes, else water). `detail.routeCurve` (0–5) then rounds the corners with Chaikin cutting (`curve()` in geo.js; each step doubles
+the points; flights excluded). `routeFx.walkPoi` (**off** by default and in every saved preset since migration 0005 — Rory: routes
+are plain lines with no end markers; the dots read as start/end points) fades a walk into a dot at its middle once its extreme points are under `below`
 (5%) of the visible map width (`walkPoiAmount()` in geo.js): on screen it is the per-walk feature-state `poi`,
 driven by zoom in `createAtlas`; the PDF/SVG export (`projectVector`) uses the same maths with opacities.
 

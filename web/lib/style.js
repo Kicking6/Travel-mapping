@@ -46,7 +46,8 @@ export function defaultStyle() {
   return {
     basemap: 'positron',
     land: '#f4f1ea',
-    water: '#a9cbe0',
+    water: '#a9cbe0',          // oceans and seas
+    lakes: null,               // null = same as water
     background: null,          // null = same as land
     labels: { show: true, color: '#3a4553', halo: '#ffffff', density: 'cities' }, // countries | cities | all
     layers: {
@@ -82,14 +83,14 @@ export function defaultStyle() {
     },
     smooth: true,
 
-    // ── Advanced (Map styles → Advanced). Everything off by default, so the
+    // ── More options (Presets → More options). Everything off by default, so the
     // basic look is unchanged until someone reaches for it.
     projection: 'mercator',                // mercator | globe
     globe: { atmosphere: true, space: '#0b1020' },
     relief: { show: false, opacity: 0.5, exaggeration: 0.5, shadow: '#5a6472', highlight: '#ffffff', accent: '#8b95a3', direction: 315 },
     terrain3d: { show: false, exaggeration: 1.3 },
     landcover: { show: false, opacity: 0.6, wood: '#cfdcc0', grass: '#dfe7cc', farmland: '#ece6d3', ice: '#ffffff', sand: '#efe2c4', wetland: '#d3e1d9', rock: '#e1ddd6' },
-    waterDetail: { outline: { show: false, color: '#7aa3bf', width: 0.6 }, rivers: { show: true, width: 1 }, labelsItalic: true },
+    waterDetail: { outline: { show: false, color: '#7aa3bf', width: 0.6 }, rivers: { show: true, width: 1, color: null }, labelsItalic: true },
     visited: { show: false, color: '#f2d7a6', opacity: 0.55, outline: { show: false, color: '#c9a061', width: 0.8 }, fadeOthers: { show: false, color: '#e9e6df', opacity: 0.6 } },
     type: {                                // typography of map labels
       font: 'Noto Sans Regular', countryFont: 'Noto Sans Bold', scale: 1, uppercase: false, countriesUppercase: true,
@@ -101,7 +102,8 @@ export function defaultStyle() {
       arrows: { show: false, spacing: 120, size: 0.7, color: null },
       cap: 'round',                        // round | butt | square
       // A walk whose extreme points are closer than `below` of the visible map width fades into a dot (TA-4).
-      walkPoi: { show: true, below: 0.05, size: 5 },
+      // Off by default: Rory and Eva read the dots as start/end markers (2026-10-05).
+      walkPoi: { show: false, below: 0.05, size: 5 },
     },
     finish: {                              // applied on export (and the print preview)
       grain: 0, vignette: 0, tint: { show: false, color: '#f3e9d2', opacity: 0.12, blend: 'multiply' },

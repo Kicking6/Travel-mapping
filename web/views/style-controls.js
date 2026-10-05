@@ -1,6 +1,6 @@
-// Style controls, declared once and rendered from data — the Map styles page
-// and an album page's "Customise this page" panel use the same component.
-// Basic sections first; the designer controls live under "Advanced".
+// Preset controls, declared once and rendered from data — the Presets page
+// (#/map) and an album page's "Look" tab use the same component.
+// The essentials come first and open; everything else sits under "More options".
 import { esc } from '../app.js';
 import { BASEMAPS, PLACE_KINDS, FONTS, TITLE_FONTS, DASHES, PRESETS, ROUTE_PALETTES, paletteColors, suggestPalette } from '../lib/style.js';
 import { TYPES } from '../lib/types.js';
@@ -13,7 +13,8 @@ const DETAIL_OPTS = [['', 'Same as all routes'], ['0', 'Full detail'], ['10', '1
 
 // Row helpers: c = colour, t = toggle, r = range, n = number, s = select, ca = colour or auto
 const c = (path, label) => ({ k: 'color', path, label });
-const ca = (path, label, auto = 'Automatic') => ({ k: 'colorAuto', path, label, auto });
+// `fallback(spec)`: the colour in use while it's on automatic, so the swatch shows it.
+const ca = (path, label, auto = 'Automatic', fallback) => ({ k: 'colorAuto', path, label, auto, fallback });
 const t = (path, label) => ({ k: 'toggle', path, label });
 const r = (path, label, min, max, step, unit = '', show) => ({ k: 'range', path, label, min, max, step, unit, show });
 // What a base-map detail level means on the ground: features smaller than ~this are smoothed away.
@@ -27,47 +28,67 @@ const line = (base, label, extra = []) => ({ k: 'line', base, label, extra });
 
 export function sections(spec, placeKinds) {
   return [
-    { id: 'presets', title: 'Start from a look', rows: [{ k: 'presets' }] },
-    { id: 'base', title: 'Base map', rows: [
-      s('basemap', 'Map data style', BASEMAPS.map((b) => [b.id, b.label])), c('land', 'Land'), c('water', 'Water'), t('smooth', 'Smooth line corners'),
+    // ── The essentials, always open: what a preset is mostly about.
+    { id: 'water', title: 'Land & water', rows: [
+      c('land', 'Land'), c('water', 'Ocean & sea'), ca('lakes', 'Lakes', 'Same as the ocean', (sp) => sp.water),
+      t('waterDetail.rivers.show', 'Rivers & streams'), ca('waterDetail.rivers.color', 'River colour', 'Same as lakes', (sp) => sp.lakes || sp.water),
+      r('waterDetail.rivers.width', 'River width', 0.2, 4, 0.1, '×'),
     ] },
-    { id: 'detail', title: 'Map detail (coarseness)', rows: [
-      s('detail.coastline', 'Coastline & lakes', [['osm', 'Finest — OpenStreetMap'], ['10m', 'Detailed — ≈ 1 km (Natural Earth 1:10m)'], ['50m', 'Smooth — ≈ 5 km (1:50m)'], ['110m', 'Very smooth — ≈ 30 km (1:110m)']]),
-      r('detail.softness', 'Coast softness (with a smoothed coastline)', 0, 20, 0.5, 'px'),
-      r('detail.baseLevel', 'Base-map detail', 0, 12, 1, '', levelKm),
-      { k: 'note', text: 'Base-map detail caps how much the roads, borders and lakes are drawn — slide left for a cleaner, more generalised map at any zoom.' },
-      r('detail.routeSimplify', 'Simplify our routes (all types)', 0, 20000, 250, '', metres),
-      r('detail.routeCurve', 'Round the corners into curves', 0, 5, 1, '', curveLabel),
-      { k: 'note', text: 'Simplify drops points (corners stay sharp); rounding then turns the corners into smooth curves — more points make a smoother curve. Both apply to every route type except flights.' },
-      { k: 'note', text: 'Line detail per type — walks can stay crisp while long drives are smoothed. “Same as all” follows the slider above.' },
-      ...TYPES.filter((ty) => ty.id !== 'flight').map((ty) => ({ k: 'select', path: `routes.${ty.id}.simplify`, num: true, label: ty.label, options: DETAIL_OPTS })),
+    { id: 'borders', title: 'Boundaries', rows: [
+      { k: 'note', text: 'Switch · colour · width.' },
+      line('layers.countries', 'Country borders'), line('layers.states', 'State / province borders'), { k: 'lineNoWidth', base: 'waterDetail.outline', label: 'Coastline outline' },
+    ] },
+    { id: 'routes', title: 'Routes', rows: [
+      { k: 'note', text: 'Each kind of travel: switch · colour · width · line pattern.' },
+      ...TYPES.map((ty) => ({ k: 'route', id: ty.id, label: ty.label })),
+    ] },
+    { id: 'places', title: 'Stays & points of interest', rows: [
+      t('places.show', 'Show stays & points of interest'),
+      r('places.scale', 'Size of all points', 0.5, 5, 0.05, '×'),
+      t('places.labels', 'Label them'),
+      { k: 'note', text: 'Each kind: switch · colour · size, then shape · symbol · symbol colour.' },
+      ...placeKinds.map((k) => ({ k: 'kind', id: k, label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label })),
     ] },
     { id: 'labels', title: 'Place names', rows: [
       t('labels.show', 'Show place names'), s('labels.density', 'How many', [['countries', 'Countries only'], ['cities', 'Countries, regions & cities'], ['all', 'Everything']]),
       c('labels.color', 'Text'), c('labels.halo', 'Halo'),
     ] },
-    { id: 'lines', title: 'Lines on the base map', rows: [
-      line('layers.countries', 'Country borders'), line('layers.states', 'State / province borders'),
+    { id: 'shape', title: 'Route line detail & curve', rows: [
+      r('detail.routeSimplify', 'Detail — simplify the lines', 0, 20000, 250, '', metres),
+      r('detail.routeCurve', 'Curve — round the corners', 0, 5, 1, '', curveLabel),
+      { k: 'note', text: 'Simplify drops points so long drives read as clean strokes (corners stay sharp); curve then rounds the corners into smooth bends. Flights are never changed.' },
+    ] },
+
+    // ── More options (collapsed).
+    { id: 'presets', advanced: true, title: 'Apply a ready-made look', rows: [
+      { k: 'note', text: 'Replaces this preset\'s colours with a starting look — then tune it above.' },
+      { k: 'presets' },
+    ] },
+    { id: 'base', advanced: true, title: 'Base map', rows: [
+      s('basemap', 'Map data style', BASEMAPS.map((b) => [b.id, b.label])), t('smooth', 'Smooth line corners'),
+    ] },
+    { id: 'detail', advanced: true, title: 'Map detail (coarseness)', rows: [
+      s('detail.coastline', 'Coastline & lakes', [['osm', 'Finest — OpenStreetMap'], ['10m', 'Detailed — ≈ 1 km (Natural Earth 1:10m)'], ['50m', 'Smooth — ≈ 5 km (1:50m)'], ['110m', 'Very smooth — ≈ 30 km (1:110m)']]),
+      r('detail.softness', 'Coast softness (with a smoothed coastline)', 0, 20, 0.5, 'px'),
+      r('detail.baseLevel', 'Base-map detail', 0, 12, 1, '', levelKm),
+      { k: 'note', text: 'Base-map detail caps how much the roads, borders and lakes are drawn — slide left for a cleaner, more generalised map at any zoom.' },
+      { k: 'note', text: 'Route detail per type — walks can stay crisp while long drives are smoothed. “Same as all routes” follows the Detail slider above.' },
+      ...TYPES.filter((ty) => ty.id !== 'flight').map((ty) => ({ k: 'select', path: `routes.${ty.id}.simplify`, num: true, label: ty.label, options: DETAIL_OPTS })),
+    ] },
+    { id: 'lines', advanced: true, title: 'Roads, ferries & parks', rows: [
       line('layers.roads', 'Roads', [s('layers.roads.density', 'Which roads', [['major', 'Major roads only'], ['all', 'All roads']])]),
       line('layers.ferries', 'Ferry lines'), { k: 'lineNoWidth', base: 'layers.parks', label: 'Parks' }, t('layers.buildings.show', 'Buildings (close zoom)'),
     ] },
-    { id: 'routes', title: 'Our routes', rows: [
+    { id: 'routes-more', advanced: true, title: 'Route palettes & edges', rows: [
       { k: 'palette' },
       r('palette.hue', 'Shift hue', -180, 180, 5, '°'), r('palette.saturation', 'Saturation', -100, 100, 5, '%'), r('palette.lightness', 'Lighter / darker', -50, 50, 1, '%'),
       t('palette.fit', 'Keep lines readable on the land colour'), r('palette.contrast', 'Minimum contrast', 1.5, 7, 0.5, ':1'),
-      { k: 'note', text: 'Each type below can still be fine-tuned by hand — picking or tuning a palette recolours them all again.' },
-      ...TYPES.map((ty) => ({ k: 'route', id: ty.id, label: ty.label })),
+      { k: 'note', text: 'Picking or tuning a palette recolours every route type in Routes above; a colour set by hand stays until the next pick.' },
       r('routeOpacity', 'Opacity', 0.1, 1, 0.05), line('routeCasing', 'White edge'),
-      t('routeFx.walkPoi.show', 'Short walks become dots when zoomed out'),
+      t('routeFx.walkPoi.show', 'Show short walks as a dot when zoomed out'),
       r('routeFx.walkPoi.below', 'Turn into a dot below (% of map width)', 0.01, 0.2, 0.01, '', pct),
       r('routeFx.walkPoi.size', 'Walk dot size', 2, 14, 0.5, 'px'),
-      { k: 'note', text: 'A walk whose furthest-apart points span less than this share of the visible map width fades smoothly into a dot at its middle, so it never disappears.' },
-    ] },
-    { id: 'places', title: 'Places (accommodation)', rows: [
-      t('places.show', 'Show places'), t('places.labels', 'Label places'),
-      r('places.scale', 'Pin size (all pins)', 0.5, 5, 0.05, '×'),
-      { k: 'note', text: 'Per kind: show · colour · size · shape · symbol · symbol colour.' },
-      ...placeKinds.map((k) => ({ k: 'kind', id: k, label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label })),
+      { k: 'note', text: 'Off by default — routes are plain lines with no dots at their ends.' },
     ] },
     { id: 'adv-pins', advanced: true, title: 'Pins & place labels', rows: [
       r('places.opacity', 'Pin opacity', 0.1, 1, 0.05), c('places.stroke', 'Pin outline'), r('places.strokeWidth', 'Outline width', 0, 5, 0.25, 'px'), t('places.shadow', 'Soft shadow under pins'),
@@ -95,10 +116,6 @@ export function sections(spec, placeKinds) {
       c('landcover.wood', 'Forest'), c('landcover.grass', 'Grass & scrub'), c('landcover.farmland', 'Farmland'), c('landcover.ice', 'Ice & glacier'),
       c('landcover.sand', 'Sand & desert'), c('landcover.wetland', 'Wetland'), c('landcover.rock', 'Rock & scree'),
     ] },
-    { id: 'adv-water', advanced: true, title: 'Water', rows: [
-      line('waterDetail.outline', 'Coastline outline'), t('waterDetail.rivers.show', 'Rivers'), r('waterDetail.rivers.width', 'River width', 0.2, 4, 0.1, '×'),
-      t('waterDetail.labelsItalic', 'Italic sea & lake names'),
-    ] },
     { id: 'adv-visited', advanced: true, title: 'Countries we visited', rows: [
       t('visited.show', 'Fill countries we visited'), c('visited.color', 'Fill'), r('visited.opacity', 'Fill strength', 0, 1, 0.05),
       line('visited.outline', 'Outline'), t('visited.fadeOthers.show', 'Fade everywhere else'), c('visited.fadeOthers.color', 'Fade colour'), r('visited.fadeOthers.opacity', 'Fade strength', 0, 1, 0.05),
@@ -107,7 +124,7 @@ export function sections(spec, placeKinds) {
       s('type.font', 'Font', FONTS.map((f) => [f, f.replace('Noto Sans ', '')])), s('type.countryFont', 'Country font', FONTS.map((f) => [f, f.replace('Noto Sans ', '')])),
       r('type.scale', 'Size', 0.5, 2.5, 0.05, '×'), t('type.uppercase', 'Uppercase names'), t('type.countriesUppercase', 'Uppercase countries'),
       r('type.letterSpacing', 'Letter spacing', 0, 0.6, 0.01, 'em'), r('type.countryLetterSpacing', 'Country letter spacing', 0, 0.8, 0.01, 'em'),
-      r('type.haloWidth', 'Halo width', 0, 4, 0.1, 'px'), ca('type.countryColor', 'Country names', 'Same as text'), ca('type.cityColor', 'City names', 'Same as text'), ca('type.waterColor', 'Water names', 'Same as text'),
+      r('type.haloWidth', 'Halo width', 0, 4, 0.1, 'px'), t('waterDetail.labelsItalic', 'Italic sea & lake names'), ca('type.countryColor', 'Country names', 'Same as text'), ca('type.cityColor', 'City names', 'Same as text'), ca('type.waterColor', 'Water names', 'Same as text'),
     ] },
     { id: 'adv-routefx', advanced: true, title: 'Route effects', rows: [
       s('routeFx.gradient.mode', 'Colour', [['off', 'By transport type'], ['trip', 'Gradient through the trip (by date)'], ['route', 'Gradient along each route']]),
@@ -116,7 +133,6 @@ export function sections(spec, placeKinds) {
       t('routeFx.arrows.show', 'Direction arrows'), r('routeFx.arrows.spacing', 'Arrow spacing', 30, 400, 5, 'px'), r('routeFx.arrows.size', 'Arrow size', 0.3, 2, 0.05, '×'), ca('routeFx.arrows.color', 'Arrow colour', 'Route colour'),
       s('routeFx.cap', 'Line ends', [['round', 'Round'], ['butt', 'Flat'], ['square', 'Square']]),
     ] },
-    { id: 'adv-places', advanced: true, title: 'Place markers', rows: [c('places.stroke', 'Outline'), r('places.strokeWidth', 'Outline width', 0, 5, 0.25, 'px')] },
     { id: 'adv-finish', advanced: true, title: 'Print finishing', rows: [
       { k: 'note', text: 'Applied to exports and Preview, not the live map.' },
       r('finish.grain', 'Paper grain', 0, 1, 0.05), r('finish.vignette', 'Vignette', 0, 1, 0.05),
@@ -133,7 +149,7 @@ export function sections(spec, placeKinds) {
       t('decor.northArrow.show', 'North arrow'), s('decor.northArrow.position', 'North arrow position', POS),
       t('decor.plate.show', 'Panel behind title & legend'), c('decor.plate.color', 'Panel colour'), r('decor.plate.opacity', 'Panel opacity', 0, 1, 0.05),
     ] },
-    { id: 'adv-file', advanced: true, title: 'Style file', rows: [{ k: 'file' }] },
+    { id: 'adv-file', advanced: true, title: 'Preset file', rows: [{ k: 'file' }] },
   ];
 }
 
@@ -141,7 +157,7 @@ function rowHtml(row, spec) {
   const v = row.path ? get(spec, row.path) : null;
   switch (row.k) {
     case 'color': return `<label class="style-line"><span>${esc(row.label)}</span><input type="color" data-path="${row.path}" value="${esc(v)}"><span></span></label>`;
-    case 'colorAuto': return `<div class="style-line"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-auto="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label><input type="color" data-path="${row.path}" value="${esc(v || '#16202b')}" ${v ? '' : 'disabled'} title="${v ? '' : esc(row.auto)}"><span class="help">${v ? '' : esc(row.auto)}</span></div>`;
+    case 'colorAuto': return `<div class="style-line"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-auto="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label><input type="color" data-path="${row.path}" value="${esc(v || (row.fallback && row.fallback(spec)) || '#16202b')}" ${v ? '' : 'disabled'} title="${v ? '' : esc(row.auto)}"><span class="help">${v ? '' : esc(row.auto)}</span></div>`;
     case 'toggle': return `<label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label>`;
     case 'range': return `<label class="range-line"><span>${esc(row.label)}</span><input type="range" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"><output>${row.show ? row.show(v) : fmt(v) + row.unit}</output></label>`;
     case 'number': return `<label class="style-line"><span>${esc(row.label)}</span><span></span><input class="input sm" type="number" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"></label>`;
@@ -170,11 +186,11 @@ function rowHtml(row, spec) {
     case 'palette': {
       const cur = (spec.palette && spec.palette.id) || 'classic';
       return `<div class="palette-grid">${ROUTE_PALETTES.map((p) => `<button type="button" class="palette-btn ${p.id === cur ? 'on' : ''}" data-palette="${p.id}" title="${esc(p.label)} — ${esc(p.for)}"><span class="pal-dots">${TYPES.map((ty) => `<i style="background:${p.colors[ty.id]}"></i>`).join('')}</span><span class="pal-name">${esc(p.label)}</span><span class="pal-for">${esc(p.for)}</span></button>`).join('')}</div>
-        <button type="button" class="btn sm" data-palette-suggest title="Pick the palette that suits this style's land colour">Suggest one for this background</button>`;
+        <button type="button" class="btn sm" data-palette-suggest title="Pick the palette that suits this preset's land colour">Suggest one for this background</button>`;
     }
     case 'presets': return `<div class="preset-grid">${PRESETS.map((p) => `<button type="button" class="preset" data-preset="${p.id}" title="${esc(p.label)}"><span class="preset-swatch" style="${swatch(p)}"></span>${esc(p.label)}</button>`).join('')}</div>`;
     case 'note': return `<p class="help">${esc(row.text)}</p>`;
-    case 'file': return `<div class="toolbar"><button type="button" class="btn sm" data-file="copy">Copy style as JSON</button><button type="button" class="btn sm" data-file="paste">Paste a style…</button></div><p class="help">Share a look between styles, or keep a backup.</p>`;
+    case 'file': return `<div class="toolbar"><button type="button" class="btn sm" data-file="copy">Copy preset as JSON</button><button type="button" class="btn sm" data-file="paste">Paste a preset…</button></div><p class="help">Share a look between presets, or keep a backup.</p>`;
     default: return '';
   }
 }
@@ -192,8 +208,8 @@ function swatch(p) {
 export function styleControls(host, spec, { onChange, onReplace, placeKinds = [], openAdvanced = false, only } = {}) {
   const secs = sections(spec, placeKinds).filter((x) => !only || only.includes(x.id));
   const basic = secs.filter((x) => !x.advanced), adv = secs.filter((x) => x.advanced);
-  const block = (x) => `<details class="style-group" ${['presets', 'base', 'routes', 'detail'].includes(x.id) ? 'open' : ''}><summary class="section-title">${esc(x.title)}</summary><div class="stack">${x.rows.map((rw) => rowHtml(rw, spec)).join('')}</div></details>`;
-  host.innerHTML = basic.map(block).join('') + (adv.length ? `<details class="advanced" ${openAdvanced ? 'open' : ''}><summary><span>Advanced</span><span class="help">projection · terrain · land cover · visited countries · typography · route effects · finishing · title & legend</span></summary>${adv.map(block).join('')}</details>` : '');
+  const block = (x) => `<details class="style-group" ${x.advanced ? '' : 'open'}><summary class="section-title">${esc(x.title)}</summary><div class="stack">${x.rows.map((rw) => rowHtml(rw, spec)).join('')}</div></details>`;
+  host.innerHTML = basic.map(block).join('') + (adv.length ? `<details class="advanced" ${openAdvanced ? 'open' : ''}><summary><span>More options</span><span class="help">ready-made looks · base map · coarseness · roads · palettes · pins · globe · terrain · typography · effects · print finishing · title & legend</span></summary>${adv.map(block).join('')}</details>` : '');
 
   const setLocal = (path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), spec)[last] = v; };
   const recolour = () => {
@@ -237,11 +253,11 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
     const f = e.target.closest('[data-file]');
     if (!f) return;
     if (f.dataset.file === 'copy') {
-      try { await navigator.clipboard.writeText(JSON.stringify(spec, null, 2)); f.textContent = 'Copied'; setTimeout(() => { f.textContent = 'Copy style as JSON'; }, 1500); } catch (_) { /* clipboard blocked */ }
+      try { await navigator.clipboard.writeText(JSON.stringify(spec, null, 2)); f.textContent = 'Copied'; setTimeout(() => { f.textContent = 'Copy preset as JSON'; }, 1500); } catch (_) { /* clipboard blocked */ }
     } else {
-      const text = prompt('Paste a style (JSON):');
+      const text = prompt('Paste a preset (JSON):');
       if (!text) return;
-      try { onReplace && onReplace({ spec: JSON.parse(text) }); } catch (_) { alert('That isn\'t valid style JSON.'); }
+      try { onReplace && onReplace({ spec: JSON.parse(text) }); } catch (_) { alert('That isn\'t valid preset JSON.'); }
     }
   };
 }

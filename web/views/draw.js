@@ -1,4 +1,4 @@
-// #/draw — draw a route by hand, Google-Maps style. Click to add points; each
+// #/draw (Import → Draw a route) — draw a route by hand, Google-Maps style. Click to add points; each
 // leg follows roads, paths, hiking trails or cycle routes (OSRM on
 // routing.openstreetmap.de and BRouter on brouter.de — free, open-source,
 // OpenStreetMap), or runs straight, or is drawn freehand with the mouse.
@@ -84,7 +84,6 @@ export async function render(el) {
   const hush = () => { quietUntil = performance.now() + 350; }; // swallow the click that ends a drag
 
   el.innerHTML = `<div class="ws ws-2"><aside class="ws-panel"><div class="ws-panel-body draw-panel">
-      <div class="row-between"><a class="btn ghost sm" href="#/map">← Map</a><span class="help">Draw a route</span></div>
       <div class="draw-search"><input class="input" id="q" type="search" placeholder="Search a place, trail head, hut…" autocomplete="off"><div class="draw-results" id="results" hidden></div></div>
       <div class="field"><label for="name">Name</label><input class="input" id="name" placeholder="e.g. Trolltunga hike"></div>
       <div class="field draw-when"><label for="date">Date <span class="req" id="dateReq">needed to place it in the album</span></label>
@@ -708,7 +707,7 @@ export async function render(el) {
       await api('POST', '/api/routes/import', { routes: [r] });
       await loadRoutes(true);
       toast(`Saved “${name}”`);
-      if (!again) { location.hash = '#/map'; return; }
+      if (!again) { location.hash = '#/routes'; return; }
       // Stay here; the saved route joins the faded ones.
       map.getSource('draw-mine').setData(mineData());
       remember(); wps = []; legs = []; $('#name', el).value = ''; $('#notes', el).value = '';

@@ -46,7 +46,8 @@ test('walkPoiAmount: a line above 5% of the view, a dot well below it, smooth in
 test('style: new defaults and validation for rounding and walk dots', () => {
   const s = resolveStyle({});
   assert.equal(s.detail.routeCurve, 0);
-  assert.deepEqual(s.routeFx.walkPoi, { show: true, below: 0.05, size: 5 });
+  assert.deepEqual(s.routeFx.walkPoi, { show: false, below: 0.05, size: 5 }); // off: routes are plain lines (2026-10-05)
+  assert.equal(s.lakes, null); assert.equal(s.waterDetail.rivers.color, null); // null = follow the water colour
   assert.equal(validateStyle(s), null);
   assert.match(validateStyle({ ...s, detail: { ...s.detail, routeCurve: 9 } }), /routeCurve/);
   assert.match(validateStyle({ ...s, routeFx: { ...s.routeFx, walkPoi: { ...s.routeFx.walkPoi, below: 0.9 } } }), /walkPoi/);

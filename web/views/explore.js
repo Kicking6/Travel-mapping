@@ -1,8 +1,7 @@
-// #/map — the whole trip: filterable route list, the map, an edit drawer.
-import { store, api, loadRoutes, applyFilter, legFor, needsReview, esc, $, fmtDate, fmtKm, debounce, toast } from '../app.js';
+// #/routes (Import → Edit routes) — the whole trip: filterable route list, the map, an edit drawer.
+import { store, loadRoutes, applyFilter, legFor, needsReview, esc, $, fmtDate, fmtKm, debounce } from '../app.js';
 import { createAtlas } from '../map/atlas.js';
-import { resolveStyle, PLACE_KINDS } from '../lib/style.js';
-import { styleControls } from './style-controls.js';
+import { resolveStyle } from '../lib/style.js';
 import { TYPES, typeById } from '../lib/types.js';
 import { unionBbox } from '../lib/geo.js';
 import { routeEditor } from './route-editor.js';
@@ -39,17 +38,9 @@ export async function render(el) {
     </aside>
     <section class="ws-map"><div class="map" id="map"></div>
       <div class="map-float tl" style="padding:6px 8px;display:flex;gap:6px;align-items:center">
-        <select class="select sm" id="styleSel" title="Map style" style="width:auto"></select>
+        <select class="select sm" id="styleSel" title="Preset to draw the map in" style="width:auto"></select>
         <button class="btn sm" id="fitAll" title="Zoom to the filtered routes">Fit</button>
-        <a class="btn sm" href="#/draw" title="Add a route by clicking on the map">＋ Draw a route</a>
         <label class="switch" style="font-size:var(--fs-sm);margin-left:4px" title="Accommodation and campsites"><input type="checkbox" id="showStays"><span class="track"></span>Stays</label>
-        <label class="switch" style="font-size:var(--fs-sm);margin-left:4px" title="Photo pins"><input type="checkbox" id="showPhotos"><span class="track"></span>Photos</label>
-        <button class="btn sm" id="pinsBtn" title="Pin size, colour, shape and symbol — saved to this map style" aria-expanded="false">Pins…</button>
-      </div>
-      <div class="map-float pins-pop" id="pinsPop" hidden>
-        <div class="row-between pins-pop-head"><strong>Pins</strong><span class="help" id="pinsSaved"></span><button class="btn sm ghost" id="pinsClose" aria-label="Close">×</button></div>
-        <p class="help" style="margin:0 0 6px">Changes save to the “<span id="pinsStyleName"></span>” style, so album pages and exports using it match.</p>
-        <div id="pinsControls"></div>
       </div>
       <div class="map-float bl map-legend-float" id="legend"></div>
     </section>
@@ -214,55 +205,12 @@ export async function render(el) {
   }
   staysToggle.onchange = () => { prefs.stays = staysToggle.checked; savePrefs(prefs); syncStays(); };
 
-  // Photo pins (clustered); click one for the lightbox.
-  const photoToggle = $('#showPhotos', el);
-  photoToggle.checked = /photos=1/.test(location.hash) || prefs.photos === true;
-  async function syncPhotos() {
-    prefs.photos = photoToggle.checked; savePrefs(prefs);
-    if (!photoToggle.checked) { atlas.setPhotos([], false); return; }
-    const { loadPhotos } = await import('./photos.js');
-    atlas.setPhotos((await loadPhotos()).filter((p) => !p.hidden), true);
-  }
-  photoToggle.onchange = syncPhotos;
-  atlas.on('photo', async (id) => { const { openPhoto } = await import('./photos.js'); openPhoto(id, syncPhotos); });
-  syncPhotos();
   styleSel.onchange = async () => {
     prefs.styleId = +styleSel.value; savePrefs(prefs);
     await atlas.setSpec(resolveStyle(store.style(+styleSel.value).spec));
     renderLegend();
-    if (!$('#pinsPop', el).hidden) openPins();
   };
 
-  // Pins… — the style's place controls, right on the map. Edits save to the selected style.
-  const pinsPop = $('#pinsPop', el), pinsBtn = $('#pinsBtn', el);
-  function openPins() {
-    const row = store.style(+styleSel.value);
-    const spec = resolveStyle(row.spec);
-    const kinds = [...new Set([...PLACE_KINDS.map((k) => k.id), ...Object.keys(spec.places.kinds), ...store.places.map((p) => p.kind)])];
-    for (const k of kinds) if (!spec.places.kinds[k]) spec.places.kinds[k] = { color: '#677384', size: 5, show: true };
-    // Only the kinds on this trip, so the list isn't a wall of unused ones.
-    const used = kinds.filter((k) => store.places.some((p) => p.kind === k));
-    $('#pinsStyleName', el).textContent = row.name;
-    $('#pinsSaved', el).textContent = '';
-    const set = (o, path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), o)[last] = v; };
-    const save = debounce(async () => {
-      $('#pinsSaved', el).textContent = 'Saving…';
-      try { await api('PUT', `/api/styles/${row.id}`, { name: row.name, spec }); row.spec = structuredClone(spec); $('#pinsSaved', el).textContent = 'Saved'; }
-      catch (e) { $('#pinsSaved', el).textContent = ''; toast(e.message, 'err'); }
-    }, 600);
-    let pending = false;
-    const repaint = () => { if (pending) return; pending = true; requestAnimationFrame(async () => { pending = false; await atlas.setSpec(structuredClone(spec)); }); };
-    styleControls($('#pinsControls', el), spec, {
-      placeKinds: used.length ? used : kinds, only: ['places', 'adv-pins'], openAdvanced: true,
-      onChange: (path, v) => { set(spec, path, v); repaint(); save(); },
-    });
-    pinsPop.querySelectorAll('details.style-group').forEach((d) => { d.open = true; });
-    if (!staysToggle.checked) { staysToggle.checked = true; staysToggle.onchange && staysToggle.onchange(); }
-    pinsPop.hidden = false; pinsBtn.setAttribute('aria-expanded', 'true');
-  }
-  const closePins = () => { pinsPop.hidden = true; pinsBtn.setAttribute('aria-expanded', 'false'); };
-  pinsBtn.onclick = () => (pinsPop.hidden ? openPins() : closePins());
-  $('#pinsClose', el).onclick = closePins;
   const onKey = (e) => {
     if (e.target.closest('input, textarea, select')) return;
     if (e.key === 'Escape' && selected.size) { selected.clear(); atlas.setSelection([]); renderTable(); renderDrawer(); }

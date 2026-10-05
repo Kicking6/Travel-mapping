@@ -108,6 +108,9 @@ function setL(map, id, prop, val) { try { map.setLayoutProperty(id, prop, val); 
 const vis = (b) => (b ? 'visible' : 'none');
 const ROUTE_LAYERS = ['ta-glow', 'ta-casing', ...Object.keys(DASHES).map((d) => 'ta-line-' + d), 'ta-line-grad', 'ta-arrows'];
 
+// Oceans in `water`; lakes, reservoirs and wide rivers in `lakes` when it is set.
+const waterFill = (spec) => (spec.lakes && spec.lakes !== spec.water ? ['match', ['get', 'class'], 'ocean', spec.water, spec.lakes] : spec.water);
+
 // `mode`: 'all' | 'base' (no routes/places) | 'overlay' (routes/places only, transparent) — layered export.
 function applyBase(map, spec, orig, mode) {
   const lv = spec.layers, ty = spec.type, base = mode !== 'overlay';
@@ -117,8 +120,8 @@ function applyBase(map, spec, orig, mode) {
     let show = true;
     switch (c) {
       case 'background': setP(map, l.id, 'background-color', spec.background || spec.land); break;
-      case 'water': setP(map, l.id, 'fill-color', spec.water); setP(map, l.id, 'fill-outline-color', spec.water); break;
-      case 'waterway': show = spec.waterDetail.rivers.show; setP(map, l.id, 'line-color', spec.water); setP(map, l.id, 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 0.4 * spec.waterDetail.rivers.width, 14, 2.5 * spec.waterDetail.rivers.width]); break;
+      case 'water': setP(map, l.id, 'fill-color', waterFill(spec)); setP(map, l.id, 'fill-outline-color', waterFill(spec)); break;
+      case 'waterway': show = spec.waterDetail.rivers.show; setP(map, l.id, 'line-color', spec.waterDetail.rivers.color || spec.lakes || spec.water); setP(map, l.id, 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 0.4 * spec.waterDetail.rivers.width, 14, 2.5 * spec.waterDetail.rivers.width]); break;
       case 'landuse': case 'aeroway': show = false; break;
       case 'parks': show = lv.parks.show; if (l.type === 'fill') { setP(map, l.id, 'fill-color', lv.parks.color); setP(map, l.id, 'fill-opacity', 0.7); } break;
       case 'buildings': show = lv.buildings.show; break;

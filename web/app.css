@@ -241,6 +241,17 @@ body.app-full main { height: calc(100vh - var(--topbar-h)); min-height: 0; overf
 .ws-drawer[hidden] { display: none !important; }
 .ws-drawer .card-head { position: sticky; top: 0; background: var(--card); z-index: 1; }
 .ws-drawer-body { padding: 14px 16px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+/* Import's sub-pages (Import files · Edit routes · Draw a route): a tab strip above the view. */
+.view-split { display: flex; flex-direction: column; min-height: 100%; }
+body.app-full .view-split { height: 100%; }
+.view-split > .view-body { flex: 1; min-height: 0; }
+body.app-full .view-split > .view-body > .ws { height: 100%; }
+.subnav { display: flex; gap: 4px; padding: 0 16px; background: var(--card); border-bottom: 1px solid var(--rule); flex: none; }
+.subnav a { padding: 9px 12px 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--mute); border-bottom: 2px solid transparent; }
+.subnav a:hover { color: var(--ink); text-decoration: none; }
+.subnav a.active { color: var(--ink); border-bottom-color: var(--accent); }
+.preset-head .toolbar { flex-wrap: wrap; }
 .map-float { position: absolute; z-index: 5; background: var(--card); border: 1px solid var(--rule); border-radius: var(--r); box-shadow: var(--shadow-pop); }
 .map-float.tl { top: 12px; left: 12px; } .map-float.tr { top: 12px; right: 12px; } .map-float.bl { bottom: 12px; left: 12px; }
 .map-legend-float { padding: 8px 12px; display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-2); max-width: calc(100% - 330px); bottom: 34px; }

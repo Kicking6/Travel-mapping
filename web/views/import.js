@@ -67,7 +67,7 @@ export async function render(el) {
         <a class="btn" href="#/draw">Or draw a route by hand</a>
       </div></div>
       <div class="card"><div class="card-head"><h3>Places (accommodation, campsites)</h3></div><div class="card-body stack">
-        <p class="help">A CSV with columns <span class="mono">name, lat, lon, kind, date, notes</span>. Kind is tent, hut, hotel, hostel, airbnb, friends, sight — or anything else, which gets its own colour in Map styles.</p>
+        <p class="help">A CSV with columns <span class="mono">name, lat, lon, kind, date, notes</span>. Kind is tent, hut, hotel, hostel, airbnb, friends, sight — or anything else, which gets its own colour in each preset.</p>
         <label class="btn">Choose places CSV<input type="file" id="pickPlaces" accept=".csv" hidden></label>
         <p class="help">${store.places.length} place${store.places.length === 1 ? '' : 's'} on the map now.</p>
       </div></div>
@@ -201,7 +201,7 @@ export async function render(el) {
       <div class="notice ok"><strong>${inserted} route${inserted === 1 ? '' : 's'} imported.</strong> ${skipped.length ? `${skipped.length} were already here.` : ''}</div>
       ${flagged.length ? `<div class="notice warn">${flagged.length} look like duplicates of routes already in the trip — they're in <a href="#/review">Review</a> to decide.</div>` : ''}
       ${failed.length ? `<div class="notice warn">${failed.map(esc).join('<br>')}</div>` : ''}
-      <div class="toolbar"><a class="btn primary" href="#/map">See them on the map</a><a class="btn" href="#/review">Review what needs a look</a></div></div>`;
+      <div class="toolbar"><a class="btn primary" href="#/routes">See them in Edit routes</a><a class="btn" href="#/review">Review what needs a look</a></div></div>`;
   }
 
   // Flights — itineraries with layovers, one per line.

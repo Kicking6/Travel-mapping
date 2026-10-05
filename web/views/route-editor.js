@@ -42,7 +42,7 @@ export function routeEditor(host, routes, { onClose, onSaved, onDeleted, onLineS
           <input type="color" name="color" value="${esc(color || typeById(routes[0].type).color)}" ${color ? '' : 'disabled'}>
           <input class="input sm" type="number" name="width" min="0.25" max="20" step="0.25" placeholder="width" value="${esc(val('width'))}" title="Line width (blank = the style's width for this type)" style="width:84px">
         </div>
-        <span class="hint">Off = the map style's colour for this transport type. Saves as you change it. <span data-linesaved></span></span>
+        <span class="hint">Off = the preset's colour for this transport type. Saves as you change it. <span data-linesaved></span></span>
       </div>
       <label class="switch"><input type="checkbox" name="hidden" ${same('hidden') ? 'checked' : ''}><span class="track"></span>Hidden — keep it, but leave it off every map</label>
       ${one ? `<div class="kv-list help">

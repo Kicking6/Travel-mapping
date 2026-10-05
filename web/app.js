@@ -148,31 +148,44 @@ export function debounce(fn, ms) {
 }
 
 // ── Router ───────────────────────────────────────────────────────────────
+// #/map is the Presets page (the home page). The route list and drawing live
+// under Import. Film and Photos are switched off for now (OFF) — their views
+// are kept, just not reachable.
 const VIEWS = {
-  map: () => import('./views/explore.js'),
+  map: () => import('./views/styles.js'),
   album: () => import('./views/album.js'),
   import: () => import('./views/import.js'),
-  review: () => import('./views/review.js'),
+  routes: () => import('./views/explore.js'),
   draw: () => import('./views/draw.js'),
-  photos: () => import('./views/photos.js'),
-  film: () => import('./views/film.js'),
-  styles: () => import('./views/styles.js'),
+  review: () => import('./views/review.js'),
   settings: () => import('./views/settings.js'),
   feedback: () => import('./views/feedback.js'),
 };
+const OFF = { film: () => import('./views/film.js'), photos: () => import('./views/photos.js') };
+const OLD = { styles: 'map' }; // old links: #/styles/3 → #/map/3
+const IMPORT_TABS = [['import', 'Import files'], ['routes', 'Edit routes'], ['draw', 'Draw a route']];
 
 let cleanup = null;
 async function route() {
-  const [name = 'map', ...params] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
-  const load = VIEWS[name] || VIEWS.map;
-  for (const a of $$('#nav a')) a.classList.toggle('active', a.dataset.nav === name);
+  let [name = 'map', ...params] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
+  if (OLD[name]) { location.replace(`#/${[OLD[name], ...params].join('/')}`); return; }
+  if (OFF[name]) { location.replace('#/map'); return; }
+  if (!VIEWS[name]) name = 'map';
+  const load = VIEWS[name];
+  const tabbed = IMPORT_TABS.some(([id]) => id === name);
+  for (const a of $$('#nav a')) a.classList.toggle('active', a.dataset.nav === (tabbed ? 'import' : name));
   if (cleanup) { try { cleanup(); } catch (_) { /* view already gone */ } cleanup = null; }
-  const el = $('#view');
-  el.innerHTML = '<div class="page"><div class="empty"><span class="spinner"></span></div></div>';
-  document.body.classList.toggle('app-full', ['map', 'album', 'styles', 'review', 'draw', 'film'].includes(name) && !(name === 'album' && !params.length));
+  const main = $('#view');
+  main.innerHTML = '<div class="page"><div class="empty"><span class="spinner"></span></div></div>';
+  document.body.classList.toggle('app-full', ['map', 'album', 'routes', 'review', 'draw'].includes(name) && !(name === 'album' && !params.length));
   try {
     const mod = await load();
-    el.innerHTML = '';
+    main.innerHTML = '';
+    let el = main;
+    if (tabbed) {
+      main.innerHTML = `<div class="view-split"><nav class="subnav" aria-label="Import">${IMPORT_TABS.map(([id, label]) => `<a href="#/${id}" class="${id === name ? 'active' : ''}">${label}</a>`).join('')}</nav><div class="view-body"></div></div>`;
+      el = $('.view-body', main);
+    }
     cleanup = (await mod.render(el, params)) || null;
   } catch (e) {
     console.error(e);

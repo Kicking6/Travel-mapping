@@ -87,8 +87,11 @@ export async function render(el) {
       <div class="row-between"><a class="btn ghost sm" href="#/map">← Map</a><span class="help">Draw a route</span></div>
       <div class="draw-search"><input class="input" id="q" type="search" placeholder="Search a place, trail head, hut…" autocomplete="off"><div class="draw-results" id="results" hidden></div></div>
       <div class="field"><label for="name">Name</label><input class="input" id="name" placeholder="e.g. Trolltunga hike"></div>
-      <div class="field-row"><div class="field"><label for="date">Date</label><input class="input" type="date" id="date"></div>
-        <div class="field"><label for="type">Type</label><select class="select" id="type">${TYPES.map((t) => `<option value="${t.id}" ${t.id === type ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select></div></div>
+      <div class="field draw-when"><label for="date">Date <span class="req" id="dateReq">needed to place it in the album</span></label>
+        <div class="date-line"><button type="button" class="btn sm" id="dateBack" title="One day earlier" aria-label="One day earlier">‹</button><input class="input" type="date" id="date"><button type="button" class="btn sm" id="dateFwd" title="One day later" aria-label="One day later">›</button></div>
+        <div class="chips" id="dateChips" hidden></div>
+        <span class="hint" id="dateHint"></span></div>
+      <div class="field"><label for="type">Type</label><select class="select" id="type">${TYPES.map((t) => `<option value="${t.id}" ${t.id === type ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select></div>
       <div class="field"><label for="mode">Snap new legs to</label><select class="select" id="mode">${PROFILES.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select><span class="hint" id="modeHelp"></span></div>
       <div class="draw-tools">
         <button class="btn sm" id="undo" title="Undo (⌘Z)">Undo</button><button class="btn sm" id="redo" title="Redo (⇧⌘Z)">Redo</button>
@@ -120,7 +123,7 @@ export async function render(el) {
           <label class="switch"><input type="checkbox" id="vRoads" ${view.roads ? 'checked' : ''}><span class="track"></span>Roads</label>
           <label class="switch"><input type="checkbox" id="vLabels" ${view.labels ? 'checked' : ''}><span class="track"></span>Names</label>
           <label class="switch" title="Footpaths and tracks from OpenStreetMap (zoom in)"><input type="checkbox" id="vTrails" ${view.trails ? 'checked' : ''}><span class="track"></span>Trails</label>
-          <label class="switch" title="Your other routes, faded"><input type="checkbox" id="vMine" ${view.mine ? 'checked' : ''}><span class="track"></span>Our routes</label>
+          <label class="switch" title="Routes already saved — outlined in white so they stand out on any map"><input type="checkbox" id="vMine" ${view.mine ? 'checked' : ''}><span class="track"></span>Our routes <span class="help">(${store.routes.filter((r) => !r.hidden).length})</span></label>
         </div>
         <label class="range-line" id="imageryLine" ${view.base === 'map' ? 'hidden' : ''}><span>Imagery</span><input type="range" id="vImagery" min="0.2" max="1" step="0.05" value="${view.imagery}"><output>${Math.round(view.imagery * 100)}%</output></label>
       </div>
@@ -147,9 +150,7 @@ export async function render(el) {
   const atlas = await createAtlas($('#map', el), { spec: drawSpec() });
   const map = atlas.map;
   const others = store.routes.filter((r) => !r.hidden);
-  atlas.setRoutes(others);
-  atlas.setDimmed(others.map((r) => r.id));
-  atlas.setVisible(view.mine ? null : []);
+  atlas.setVisible([]); // existing routes are drawn by our own layers below — the atlas's faded ones vanish into dark maps
   atlas.setPlaces(store.places);
   atlas.fit(unionBbox(others.map((r) => r.bbox)), { duration: 0 });
 
@@ -198,7 +199,8 @@ export async function render(el) {
     await atlas.setSpec(drawSpec());
     paintRoads();
     syncImagery();
-    atlas.setVisible(view.mine ? null : []);
+    atlas.setVisible([]);
+    syncMine();
     saveView();
   }
   paintRoads(); syncImagery();
@@ -215,7 +217,7 @@ export async function render(el) {
   $('#vRoads', el).onchange = (e) => { view.roads = e.target.checked; applyView(); };
   $('#vLabels', el).onchange = (e) => { view.labels = e.target.checked; applyView(); };
   $('#vTrails', el).onchange = (e) => { view.trails = e.target.checked; syncImagery(); saveView(); };
-  $('#vMine', el).onchange = (e) => { view.mine = e.target.checked; atlas.setVisible(view.mine ? null : []); saveView(); };
+  $('#vMine', el).onchange = (e) => { view.mine = e.target.checked; syncMine(); saveView(); };
   $('#vImagery', el).oninput = (e) => {
     view.imagery = +e.target.value; e.target.nextElementSibling.textContent = `${Math.round(view.imagery * 100)}%`;
     if (map.getLayer('draw-base')) map.setPaintProperty('draw-base', 'raster-opacity', view.imagery);
@@ -232,6 +234,21 @@ export async function render(el) {
   map.addLayer({ id: 'draw-rubber', type: 'line', source: 'draw-rubber', paint: { 'line-color': '#16202b', 'line-width': 1.5, 'line-dasharray': [2, 2], 'line-opacity': 0.6 } });
   map.addLayer({ id: 'draw-stroke', type: 'line', source: 'draw-stroke', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#16202b', 'line-width': 3 } });
   map.addLayer({ id: 'draw-hover', type: 'circle', source: 'draw-hover', paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': '#16202b', 'circle-stroke-width': 2.5 } });
+
+  // Routes already saved: white-cased lines in their type colour, so they read on the dark, light and satellite maps alike.
+  const mineData = () => ({ type: 'FeatureCollection', features: store.routes.filter((r) => !r.hidden).map((r) => ({ type: 'Feature', properties: { id: r.id, name: r.name || '', date: r.date || '', color: typeById(r.type).color, flight: r.type === 'flight' }, geometry: { type: 'LineString', coordinates: r.coords } })) });
+  map.addSource('draw-mine', { type: 'geojson', data: mineData() });
+  map.addLayer({ id: 'draw-mine-casing', type: 'line', source: 'draw-mine', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3.5, 12, 6], 'line-opacity': 0.9 } }, 'draw-casing');
+  map.addLayer({ id: 'draw-mine-line', type: 'line', source: 'draw-mine', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.8, 12, 3.5] } }, 'draw-casing');
+  const syncMine = () => { for (const id of ['draw-mine-casing', 'draw-mine-line']) map.setLayoutProperty(id, 'visibility', view.mine ? 'visible' : 'none'); };
+  syncMine();
+  const mineTip = new window.maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: 'mine-tip' });
+  map.on('mousemove', 'draw-mine-line', (e) => {
+    if (e.originalEvent.buttons) return;
+    const p = e.features[0].properties;
+    mineTip.setLngLat(e.lngLat).setHTML(`<strong>${esc(p.name)}</strong><br><span class="help">${p.date ? esc(p.date) : 'no date yet'}</span>`).addTo(map);
+  });
+  map.on('mouseleave', 'draw-mine-line', () => mineTip.remove());
 
   const color = () => typeById(type).color;
   const fullLine = () => { const out = []; legCoords.forEach((c) => { if (c) out.push(...(out.length ? c.slice(1) : c)); }); return out.length ? out : wps.map((w) => w.lngLat); };
@@ -338,7 +355,7 @@ export async function render(el) {
     drawMarkers();
     legCoords = legs.map(() => null); legDur = legs.map(() => null); legErr = legs.map(() => null);
     ascent = descent = null; $('#elev', el).hidden = true;
-    drawLegs(); stats(); drawLegList();
+    drawLegs(); stats(); drawLegList(); if (typeof dateChips === 'function') dateChips();
     map.getSource('draw-rubber').setData(EMPTY);
     const pending = legs.map((_, i) => leg(i).then((r) => {
       if (g !== gen) return;
@@ -437,9 +454,23 @@ export async function render(el) {
 
   // ── Map gestures: click, drag the line, freehand, rubber band ───────────
   map.on('mousedown', () => { $('#results', el).hidden = true; });
+  // A click that wobbles a few pixels (trackpads, tired hands) is still a click: MapLibre's own
+  // 'click' ignores anything over 3 px and pans instead, which feels like "the map won't draw".
+  let down = null, lastAdd = 0;
+  map.on('mousedown', (e) => {
+    const onLine = mode !== 'freehand' && map.queryRenderedFeatures(e.point, { layers: ['draw-hit'] }).length;
+    down = e.originalEvent.button === 0 && !onLine && !onHandle(e.originalEvent) ? { x: e.point.x, y: e.point.y, t: performance.now(), ll: e.lngLat } : null;
+  });
+  map.on('mouseup', (e) => {
+    const d = down; down = null;
+    if (!d || mode === 'freehand' || spaceDown || performance.now() < quietUntil || onHandle(e.originalEvent)) return;
+    if (Math.hypot(e.point.x - d.x, e.point.y - d.y) > 10 || performance.now() - d.t > 700) return;
+    lastAdd = performance.now();
+    addPoint([d.ll.lng, d.ll.lat]);
+  });
   map.on('click', (e) => {
-    if (performance.now() < quietUntil || onHandle(e.originalEvent)) return;
-    addPoint([e.lngLat.lng, e.lngLat.lat]);
+    if (performance.now() - lastAdd < 300 || performance.now() < quietUntil || onHandle(e.originalEvent)) return;
+    addPoint([e.lngLat.lng, e.lngLat.lat]); // touch screens
   });
   // Press on the line (and drag): a new via point there, Google-Maps style.
   map.on('mousedown', 'draw-hit', (e) => {
@@ -608,6 +639,37 @@ export async function render(el) {
   };
   $('#imgRemove', el).onclick = removeImage;
 
+  // ── Date: picker, ‹ › nudges, and the dates of saved routes passing nearby ──
+  const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const shiftDay = (d, n) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  function dateUI() {
+    const d = $('#date', el).value, ts = store.trip && store.trip.trip_start;
+    $('#dateReq', el).hidden = !!d;
+    const day = d && ts ? Math.round((Date.parse(d) - Date.parse(ts)) / 86400000) + 1 : null;
+    $('#dateHint', el).textContent = d ? `${fmtDay(d)}${day > 0 ? ` · day ${day} of the trip` : ''}` : '';
+  }
+  function dateChips() {
+    const box = $('#dateChips', el), at = wps.length ? wps[0].lngLat : null;
+    if (!at) { box.hidden = true; return; }
+    const near = [];
+    for (const r of store.routes) {
+      if (!r.date || r.hidden) continue;
+      let best = Infinity;
+      const c = r.coordsLo || r.coords;
+      for (let i = 0; i < c.length; i += Math.max(1, Math.floor(c.length / 400))) { const k = haversineKm(at, c[i]); if (k < best) best = k; }
+      if (best < 25) near.push({ date: r.date, name: r.name, km: best });
+    }
+    near.sort((a, b) => a.km - b.km);
+    const seen = new Set(), pick = near.filter((n) => !seen.has(n.date) && seen.add(n.date)).slice(0, 4);
+    box.hidden = !pick.length;
+    box.innerHTML = pick.length ? `<span class="help">Saved routes near the start:</span>${pick.map((n) => `<button type="button" class="chip" data-d="${n.date}" title="${esc(n.name || '')}">${esc(fmtDay(n.date).replace(/^\w+, /, ''))}</button>`).join('')}` : '';
+  }
+  $('#date', el).oninput = dateUI;
+  $('#dateBack', el).onclick = () => { const i = $('#date', el); i.value = shiftDay(i.value || (store.trip && store.trip.trip_start) || new Date().toISOString().slice(0, 10), i.value ? -1 : 0); dateUI(); };
+  $('#dateFwd', el).onclick = () => { const i = $('#date', el); i.value = shiftDay(i.value || (store.trip && store.trip.trip_start) || new Date().toISOString().slice(0, 10), i.value ? 1 : 0); dateUI(); };
+  $('#dateChips', el).onclick = (e) => { const b = e.target.closest('[data-d]'); if (b) { $('#date', el).value = b.dataset.d; dateUI(); } };
+  dateUI();
+
   // ── Panel controls ──────────────────────────────────────────────────────
   $('#type', el).onchange = (e) => { type = e.target.value; setMode(DEFAULT_PROFILE[type] || 'car'); drawLegs(); };
   $('#mode', el).onchange = (e) => setMode(e.target.value);
@@ -636,6 +698,7 @@ export async function render(el) {
     const r = buildRoute(line, { fileName: name, type, sourceKind: 'manual' });
     r.name = name;
     const date = $('#date', el).value;
+    if (!date && !confirm('No date set — this will sit under “No date yet” until you add one.\n\nSave without a date?')) { $('#date', el).focus(); return; }
     r.date = date || null; r.date_source = date ? 'manual' : null;
     const how = [...new Set(legs.map((l) => PROFILES.find((p) => p.id === l.profile).label))].join(', ');
     r.notes = [$('#notes', el).value.trim(), `Drawn by hand (${how})${ascent != null ? ` · ↑${Math.round(ascent)} m ↓${Math.round(descent)} m` : ''}`].filter(Boolean).join('\n');
@@ -647,8 +710,7 @@ export async function render(el) {
       toast(`Saved “${name}”`);
       if (!again) { location.hash = '#/map'; return; }
       // Stay here; the saved route joins the faded ones.
-      const fresh = store.routes.filter((x) => !x.hidden);
-      atlas.setRoutes(fresh); atlas.setDimmed(fresh.map((x) => x.id));
+      map.getSource('draw-mine').setData(mineData());
       remember(); wps = []; legs = []; $('#name', el).value = ''; $('#notes', el).value = '';
       recompute();
     } catch (e) { toast(e.message, 'err'); stats(); }

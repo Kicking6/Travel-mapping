@@ -509,3 +509,13 @@ pre.ctx { background: var(--surface-2); padding: 10px; border-radius: var(--r-sm
 .fb-top .count[hidden], .menu-item .count[hidden] { display: none; }
 .seg .count { font-size: var(--fs-xs); background: var(--over); color: #fff; border-radius: 999px; padding: 0 6px; margin-left: 4px; }
 kbd { background: var(--surface-2); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; font: inherit; font-size: 0.9em; }
+
+/* Draw: date block + saved-route tooltip */
+.draw-when .req { font-weight: 600; font-size: var(--fs-xs); color: var(--warn); margin-left: 6px; }
+.date-line { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; gap: 6px; }
+.date-line .btn { padding: 0; font-size: 18px; line-height: 1; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.chip { border: 1px solid var(--rule); background: var(--card); border-radius: 999px; padding: 3px 10px; font: 600 var(--fs-sm) var(--body); color: var(--ink-2); cursor: pointer; }
+.chip:hover { border-color: var(--accent); background: var(--accent-tint); }
+.chips[hidden] { display: none; }
+.mine-tip .maplibregl-popup-content { pointer-events: none; padding: 6px 10px; font-size: var(--fs-sm); }

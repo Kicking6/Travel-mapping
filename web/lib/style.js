@@ -42,6 +42,34 @@ export const PLACE_KINDS = [
 
 export const DASHES = { solid: null, dashed: [3, 2], dotted: [0.1, 2], long: [6, 3], dashdot: [4, 2, 0.1, 2] };
 
+// A route type's dash pattern in line-widths (what MapLibre's line-dasharray and the
+// export both want), with its own dash length / gap laid over the named pattern (TA-9).
+// null = the pattern as named; solid = null (no dashes).
+export function dashArray(rt) {
+  const base = rt && DASHES[rt.dash];
+  if (!base) return null;
+  const len = rt.dashLen > 0 ? rt.dashLen : null, gap = rt.dashGap > 0 ? rt.dashGap : null;
+  if (len == null && gap == null) return base;
+  const g = gap == null ? base[1] : gap;
+  return base.length === 4 ? [len == null ? base[0] : len, g, base[2], g] : [len == null ? base[0] : len, g];
+}
+// A slider that is fine at the low end: position 0 = 0, 1…100 climb from `lo` to `hi` (TA-8).
+export const logScale = (lo, hi) => ({
+  pos: (v) => (v <= 0 ? 0 : Math.round(1 + (Math.log(Math.max(v, lo) / lo) / Math.log(hi / lo)) * 99)),
+  val: (p) => {
+    if (p <= 0) return 0;
+    const v = lo * (hi / lo) ** ((p - 1) / 99), st = Math.max(1, 10 ** Math.floor(Math.log10(v)) / 10);
+    return Math.min(hi, Math.round(v / st) * st);
+  },
+});
+// The pin outline a place kind is drawn with (TA-5): its own colour, else the preset's default
+// outline colour; `outline: false` turns it off. Returns { color, width } — width 0 = no outline.
+export function pinStroke(kind, places) {
+  const color = kind.stroke || places.stroke;
+  const on = kind.outline !== false && color && places.strokeWidth > 0;
+  return { color: on ? color : null, width: on ? places.strokeWidth : 0 };
+}
+
 export function defaultStyle() {
   return {
     basemap: 'positron',
@@ -59,7 +87,8 @@ export function defaultStyle() {
       buildings: { show: false },
     },
     // simplify: metres of smoothing for this type; null = follow detail.routeSimplify. Walks keep full detail by default.
-    routes: Object.fromEntries(TYPES.map((t) => [t.id, { color: t.color, width: t.width, show: true, dash: t.dash ? 'dashed' : 'solid', simplify: t.id === 'walk' ? 0 : null }])),
+    // dashLen / dashGap: this type's dash length and gap in line-widths; null = the pattern's own (TA-9).
+    routes: Object.fromEntries(TYPES.map((t) => [t.id, { color: t.color, width: t.width, show: true, dash: t.dash ? 'dashed' : 'solid', dashLen: null, dashGap: null, simplify: t.id === 'walk' ? 0 : null }])),
     // The palette the route colours came from, and how it was tuned to the background.
     // Picking or tuning it rewrites routes[type].color; a colour edited by hand stays until the next pick.
     palette: { id: 'classic', hue: 0, saturation: 0, lightness: 0, fit: false, contrast: 3 },
@@ -68,7 +97,8 @@ export function defaultStyle() {
     places: {
       show: true, labels: false, stroke: '#ffffff', strokeWidth: 1.5, opacity: 1, shadow: true,
       scale: 1.6,                          // every pin at once, on top of each kind's own size
-      kinds: Object.fromEntries(PLACE_KINDS.map((k) => [k.id, { color: k.color, size: k.size, show: true, shape: k.shape, glyph: k.glyph, glyphColor: '#ffffff' }])),
+      // Each kind's outline (TA-5): `outline` false = none; `stroke` null = the preset's pin outline colour.
+      kinds: Object.fromEntries(PLACE_KINDS.map((k) => [k.id, { color: k.color, size: k.size, show: true, shape: k.shape, glyph: k.glyph, glyphColor: '#ffffff', outline: true, stroke: null }])),
       label: { field: 'name', size: 11, color: null, halo: null, haloWidth: 1.4, font: 'Noto Sans Regular', position: 'top', uppercase: false, minZoom: 0 },
       numbering: false,                    // number stays in date order (shown by the "Night number" symbol and labels)
       connect: { show: false, color: '#677384', width: 1.2, dash: 'dotted', opacity: 0.85 }, // join the stays in date order
@@ -223,6 +253,7 @@ export function validateStyle(spec) {
     if (/palette\.hue$/.test(path) && typeof v === 'number' && !(v >= -180 && v <= 180)) errs.push(`${path} out of range`);
     if (/palette\.(saturation)$/.test(path) && typeof v === 'number' && !(v >= -100 && v <= 100)) errs.push(`${path} out of range`);
     if (/palette\.(lightness)$/.test(path) && typeof v === 'number' && !(v >= -50 && v <= 50)) errs.push(`${path} out of range`);
+    if (/routes\.\w+\.dash(Len|Gap)$/.test(path) && v !== null && !(typeof v === 'number' && v >= 0.05 && v <= 40)) errs.push(`${path} must be 0.05–40`);
     if (/routes\.\w+\.simplify$/.test(path) && v !== null && !(typeof v === 'number' && v >= 0 && v <= 100000)) errs.push(`${path} out of range`);
     if (/routeCurve$/.test(path) && typeof v === 'number' && !(Number.isInteger(v) && v >= 0 && v <= 5)) errs.push(`${path} must be 0–5`);
     if (/walkPoi\.below$/.test(path) && typeof v === 'number' && !(v >= 0.005 && v <= 0.5)) errs.push(`${path} must be 0.5%–50%`);

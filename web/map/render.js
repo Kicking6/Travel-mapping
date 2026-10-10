@@ -12,7 +12,7 @@
 // grain, vignette, border) → decor (title, subtitle, legend, scale bar,
 // north arrow) → encode (PNG/JPEG/WebP/PDF/SVG/ZIP of layers).
 import { createAtlas } from './atlas.js';
-import { TITLE_FONTS, DASHES, PLACE_KINDS, pinPx } from '../lib/style.js';
+import { TITLE_FONTS, PLACE_KINDS, pinPx, dashArray, pinStroke } from '../lib/style.js';
 import { kindOf, visiblePlaces, routeCoords } from './atlas.js';
 import { walkPoiAmount } from '../lib/geo.js';
 import { pinParts, mapPath } from '../lib/pins.js';
@@ -127,7 +127,7 @@ function projectVector(o, project, ratio, W, H) {
     const ts = s.routes[r.type] || s.routes.other;
     if (!ts || ts.show === false) continue;
     const pts = thin(routeCoords(r, s).map(project));
-    const width = (r.width || ts.width) * ratio, dash = DASHES[ts.dash] ? DASHES[ts.dash].map((d) => Math.max(d, 0.1) * width) : null;
+    const width = (r.width || ts.width) * ratio, dashPx = dashArray(ts), dash = dashPx ? dashPx.map((d) => Math.max(d, 0.1) * width) : null;
     // A short walk fades into a dot, exactly as on screen (TA-4): same maths: extreme-point distance as a share of the map width.
     const wp = s.routeFx.walkPoi;
     let poi = 0;
@@ -153,13 +153,14 @@ function projectVector(o, project, ratio, W, H) {
   const vis = visiblePlaces(o.places || [], s);
   if (s.places.connect.show && vis.length > 1) {
     const cn = s.places.connect;
-    paths.push({ id: 'stays-line', pts: vis.filter((p) => p.date).map((p) => project([p.lon, p.lat])), color: cn.color, width: cn.width * ratio, dash: DASHES[cn.dash] ? DASHES[cn.dash].map((d) => Math.max(d, 0.1) * cn.width * ratio) : null, opacity: cn.opacity });
+    paths.push({ id: 'stays-line', pts: vis.filter((p) => p.date).map((p) => project([p.lon, p.lat])), color: cn.color, width: cn.width * ratio, dash: dashArray(cn) ? dashArray(cn).map((d) => Math.max(d, 0.1) * cn.width * ratio) : null, opacity: cn.opacity });
   }
   vis.forEach((p) => {
     const k = kindOf(s, p.kind);
     const [x, y] = project([p.lon, p.lat]);
     const parts = pinParts(k, { x, y, px: pinPx(k, s.places) * ratio });
-    shapes.push({ d: parts.shape, fill: k.color, stroke: s.places.strokeWidth > 0 ? s.places.stroke : null, strokeWidth: s.places.strokeWidth * ratio, opacity: s.places.opacity, name: p.name });
+    const st = pinStroke(k, s.places);
+    shapes.push({ d: parts.shape, fill: k.color, stroke: st.color, strokeWidth: st.width * ratio, opacity: s.places.opacity, name: p.name });
     if (parts.glyph) shapes.push({ d: parts.glyph, fill: k.glyphColor || '#ffffff', opacity: s.places.opacity });
   });
   return { paths, circles, shapes };
@@ -258,7 +259,7 @@ function drawDecor(ctx, W, H, o, info, unit, bleedPx) {
     const kinds = s.places.show ? [...new Set((o.places || []).map((p) => p.kind))].filter((k) => s.places.kinds[k] && s.places.kinds[k].show !== false) : [];
     const fs = 11 * unit, row = fs * 1.7, sw = 22 * unit;
     ctx.font = `400 ${fs}px ${font(dc.titleFont)}`;
-    const items = [...types.map((t) => ({ kind: 'line', label: typeById(t).label, color: s.routes[t].color, dash: s.routes[t].dash })), ...kinds.map((k) => ({ kind: 'pin', label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label, pin: s.places.kinds[k] }))];
+    const items = [...types.map((t) => ({ kind: 'line', label: typeById(t).label, color: s.routes[t].color, dash: dashArray(s.routes[t]) })), ...kinds.map((k) => ({ kind: 'pin', label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label, pin: s.places.kinds[k] }))];
     const w = sw + 8 * unit + Math.max(0, ...items.map((i) => ctx.measureText(i.label).width)), h = items.length * row;
     const [x, y] = corner(dc.legend.position, w, h);
     plate(x, y, w, h);
@@ -267,14 +268,15 @@ function drawDecor(ctx, W, H, o, info, unit, bleedPx) {
       ctx.save();
       if (it.kind === 'line') {
         ctx.strokeStyle = it.color; ctx.lineWidth = 3 * unit; ctx.lineCap = 'round';
-        if (DASHES[it.dash]) ctx.setLineDash(DASHES[it.dash].map((d) => Math.max(d, 0.4) * 3 * unit));
+        if (it.dash) ctx.setLineDash(it.dash.map((d) => Math.max(d, 0.4) * 3 * unit));
         ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x + sw, cy); ctx.stroke();
       } else {
         const px = Math.min(row * 1.05, pinPx(it.pin, s.places) * unit);
         const parts = pinParts(it.pin, { x: x + sw / 2, y: cy + ((SHAPE_BOTTOM.has(it.pin.shape) ? px / 2 : 0)), px });
         const shape = new Path2D(parts.shape);
         ctx.globalAlpha = s.places.opacity; ctx.fillStyle = it.pin.color; ctx.fill(shape);
-        if (s.places.strokeWidth > 0) { ctx.lineWidth = s.places.strokeWidth * unit * 0.8; ctx.strokeStyle = s.places.stroke; ctx.stroke(shape); }
+        const st = pinStroke(it.pin, s.places);
+        if (st.width > 0) { ctx.lineWidth = st.width * unit * 0.8; ctx.strokeStyle = st.color; ctx.stroke(shape); }
         if (parts.glyph) { ctx.fillStyle = it.pin.glyphColor || '#ffffff'; ctx.fill(new Path2D(parts.glyph), 'evenodd'); }
       }
       ctx.restore();

@@ -384,6 +384,24 @@ details.advanced details.style-group:last-child { border-bottom: 0; }
 .kind-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; gap: 6px; margin-top: 5px; }
 .kind-line input[type=color] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); cursor: pointer; }
 .range-line output { white-space: nowrap; }
+/* Sliders with a number box (TA-7): label · slider · typed value · unit. A hint (e.g. "1.5 km") drops to its own line. */
+.range-line.has-num { grid-template-columns: minmax(0, 1fr) 76px 56px 30px; gap: 6px 8px; }
+.range-line.has-num .input.sm { width: 56px; padding-left: 6px; padding-right: 6px; text-align: right; -moz-appearance: textfield; }
+.range-line.has-num .input.sm::-webkit-inner-spin-button, .range-line.has-num .input.sm::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.range-line.has-num output { text-align: left; }
+.range-line.has-num output.long { grid-column: 1 / -1; text-align: right; margin-top: -4px; }
+/* A route type's dash length + gap (TA-9) sits under its line, only when the pattern isn't solid. */
+.route-dash { display: grid; grid-template-columns: minmax(0, 1fr) 58px 58px; gap: 6px; align-items: center; margin-top: 4px; font-size: var(--fs-xs); color: var(--mute); }
+.route-dash[hidden] { display: none; }
+.route-dash .input.sm { width: 58px; }
+/* Pin kinds (TA-6): one line each; ⋯ opens shape · symbol · outline. "All kinds" on top writes to every kind. */
+.kind-head { display: grid; grid-template-columns: minmax(0, 1fr) 30px 58px 28px; gap: 6px; align-items: center; font-size: var(--fs-sm); }
+.kind-head input[type=color] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); cursor: pointer; }
+.kind-head .input.sm { width: 58px; }
+.kind-head .btn { padding: 0 6px; min-width: 28px; }
+.kind-more[hidden] { display: none; }
+.kind-outline { align-items: center; }
+.kind-all { background: var(--surface-2); border-radius: var(--r-sm); padding: 6px 8px 8px; margin-bottom: 4px; }
 
 /* Explore → Pins… : the style's place controls floating over the map */
 .pins-pop { top: 60px; left: 12px; width: 340px; max-width: calc(100% - 24px); max-height: calc(100% - 84px); overflow: auto; padding: 10px 14px 14px; }

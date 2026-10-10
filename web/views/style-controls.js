@@ -2,7 +2,7 @@
 // (#/map) and an album page's "Look" tab use the same component.
 // The essentials come first and open; everything else sits under "More options".
 import { esc } from '../app.js';
-import { BASEMAPS, PLACE_KINDS, FONTS, TITLE_FONTS, DASHES, PRESETS, ROUTE_PALETTES, paletteColors, suggestPalette } from '../lib/style.js';
+import { BASEMAPS, PLACE_KINDS, FONTS, TITLE_FONTS, DASHES, PRESETS, ROUTE_PALETTES, paletteColors, suggestPalette, logScale } from '../lib/style.js';
 import { TYPES } from '../lib/types.js';
 import { SHAPES, GLYPHS } from '../lib/pins.js';
 
@@ -16,11 +16,12 @@ const c = (path, label) => ({ k: 'color', path, label });
 // `fallback(spec)`: the colour in use while it's on automatic, so the swatch shows it.
 const ca = (path, label, auto = 'Automatic', fallback) => ({ k: 'colorAuto', path, label, auto, fallback });
 const t = (path, label) => ({ k: 'toggle', path, label });
-const r = (path, label, min, max, step, unit = '', show) => ({ k: 'range', path, label, min, max, step, unit, show });
+// `show` turns the value into a hint under the slider; `mul` is how the value is typed (0.05 → 5 with mul 100);
+// `scale` bends the slider (fine steps at the low end) — the value is still typed exactly (TA-7, TA-8).
+const r = (path, label, min, max, step, unit = '', show, mul = 1) => ({ k: 'range', path, label, min, max, step, unit, show, mul });
 // What a base-map detail level means on the ground: features smaller than ~this are smoothed away.
 const levelKm = (z) => (z ? `≈ ${(40075 / (512 * 2 ** z) * 4).toFixed(z > 6 ? 1 : 0)} km` : 'Automatic');
 const curveLabel = (k) => (k ? `${2 ** k}× points` : 'Off');
-const pct = (v) => `${Math.round(v * 100)}%`;
 const metres = (m) => (m ? (m >= 1000 ? `${+(m / 1000).toFixed(1)} km` : `${m} m`) : 'Off');
 const n = (path, label, min, max, step) => ({ k: 'number', path, label, min, max, step });
 const s = (path, label, options) => ({ k: 'select', path, label, options });
@@ -46,7 +47,8 @@ export function sections(spec, placeKinds) {
       t('places.show', 'Show stays & points of interest'),
       r('places.scale', 'Size of all points', 0.5, 5, 0.05, '×'),
       t('places.labels', 'Label them'),
-      { k: 'note', text: 'Each kind: switch · colour · size, then shape · symbol · symbol colour.' },
+      { k: 'note', text: 'Set “All kinds” first, then ⋯ on a kind to change just that one: shape · symbol · symbol colour · outline.' },
+      { k: 'kindsAll' },
       ...placeKinds.map((k) => ({ k: 'kind', id: k, label: (PLACE_KINDS.find((x) => x.id === k) || { label: k }).label })),
     ] },
     { id: 'labels', title: 'Place names', rows: [
@@ -54,7 +56,7 @@ export function sections(spec, placeKinds) {
       c('labels.color', 'Text'), c('labels.halo', 'Halo'),
     ] },
     { id: 'shape', title: 'Route line detail & curve', rows: [
-      r('detail.routeSimplify', 'Detail — simplify the lines', 0, 20000, 250, '', metres),
+      { ...r('detail.routeSimplify', 'Detail — simplify the lines', 0, 20000, 250, '', metres), scale: logScale(5, 20000) },
       r('detail.routeCurve', 'Curve — round the corners', 0, 5, 1, '', curveLabel),
       { k: 'note', text: 'Simplify drops points so long drives read as clean strokes (corners stay sharp); curve then rounds the corners into smooth bends. Flights are never changed.' },
     ] },
@@ -86,17 +88,18 @@ export function sections(spec, placeKinds) {
       { k: 'note', text: 'Picking or tuning a palette recolours every route type in Routes above; a colour set by hand stays until the next pick.' },
       r('routeOpacity', 'Opacity', 0.1, 1, 0.05), line('routeCasing', 'White edge'),
       t('routeFx.walkPoi.show', 'Show short walks as a dot when zoomed out'),
-      r('routeFx.walkPoi.below', 'Turn into a dot below (% of map width)', 0.01, 0.2, 0.01, '', pct),
+      r('routeFx.walkPoi.below', 'Turn into a dot below (% of map width)', 0.01, 0.2, 0.01, '%', undefined, 100),
       r('routeFx.walkPoi.size', 'Walk dot size', 2, 14, 0.5, 'px'),
       { k: 'note', text: 'Off by default — routes are plain lines with no dots at their ends.' },
     ] },
     { id: 'adv-pins', advanced: true, title: 'Pins & place labels', rows: [
-      r('places.opacity', 'Pin opacity', 0.1, 1, 0.05), c('places.stroke', 'Pin outline'), r('places.strokeWidth', 'Outline width', 0, 5, 0.25, 'px'), t('places.shadow', 'Soft shadow under pins'),
+      r('places.opacity', 'Pin opacity', 0.1, 1, 0.05), c('places.stroke', 'Default outline colour'), r('places.strokeWidth', 'Outline width', 0, 5, 0.25, 'px'), t('places.shadow', 'Soft shadow under pins'),
       s('places.label.field', 'Label text', [['name', 'Name'], ['name-nights', 'Name · nights'], ['name-date', 'Name · date'], ['date', 'Date'], ['nights', 'Nights'], ['number', 'Night number'], ['number-name', 'Number. Name']]),
       s('places.label.position', 'Label position', [['top', 'Above'], ['bottom', 'Below'], ['right', 'Right'], ['left', 'Left']]),
       s('places.label.font', 'Label font', FONTS.map((f) => [f, f.replace('Noto Sans ', '')])), r('places.label.size', 'Label size', 7, 24, 0.5, 'px'),
       ca('places.label.color', 'Label colour', 'Same as place names'), ca('places.label.halo', 'Label halo', 'Same as place names'), r('places.label.haloWidth', 'Halo width', 0, 4, 0.1, 'px'),
       t('places.label.uppercase', 'Uppercase labels'), r('places.label.minZoom', 'Labels from zoom', 0, 14, 0.5, ''),
+      { k: 'note', text: 'Each pin kind can use this outline colour or its own, or none — set it under ⋯ on the Stays & points of interest kind.' },
       { k: 'note', text: 'Numbered stays: pick the “Night number” symbol for a kind, or the Night number label — stays are numbered in date order.' },
       t('places.connect.show', 'Join the stays in date order'), c('places.connect.color', 'Line colour'), r('places.connect.width', 'Line width', 0.25, 8, 0.25, 'px'),
       s('places.connect.dash', 'Line pattern', DASH_OPTS), r('places.connect.opacity', 'Line opacity', 0.1, 1, 0.05),
@@ -159,7 +162,10 @@ function rowHtml(row, spec) {
     case 'color': return `<label class="style-line"><span>${esc(row.label)}</span><input type="color" data-path="${row.path}" value="${esc(v)}"><span></span></label>`;
     case 'colorAuto': return `<div class="style-line"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-auto="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label><input type="color" data-path="${row.path}" value="${esc(v || (row.fallback && row.fallback(spec)) || '#16202b')}" ${v ? '' : 'disabled'} title="${v ? '' : esc(row.auto)}"><span class="help">${v ? '' : esc(row.auto)}</span></div>`;
     case 'toggle': return `<label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${row.path}" ${v ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label>`;
-    case 'range': return `<label class="range-line"><span>${esc(row.label)}</span><input type="range" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"><output>${row.show ? row.show(v) : fmt(v) + row.unit}</output></label>`;
+    case 'range': {
+      const sc = row.scale, mul = row.mul || 1;
+      return `<label class="range-line has-num"><span>${esc(row.label)}</span><input type="range" data-path="${row.path}" min="${sc ? 0 : row.min}" max="${sc ? 100 : row.max}" step="${sc ? 1 : row.step}" value="${sc ? sc.pos(v) : v}"><input class="input sm" type="number" data-box="${row.path}" min="${+(row.min * mul).toFixed(4)}" max="${+(row.max * mul).toFixed(4)}" step="any" value="${shown(row, v)}" title="Type a value (${+(row.min * mul).toFixed(4)}–${+(row.max * mul).toFixed(4)})"><output${row.show ? ' class="long"' : ''}>${esc(row.show ? row.show(v) : row.unit)}</output></label>`;
+    }
     case 'number': return `<label class="style-line"><span>${esc(row.label)}</span><span></span><input class="input sm" type="number" data-path="${row.path}" min="${row.min}" max="${row.max}" step="${row.step}" value="${v}"></label>`;
     case 'select': return `<label class="field"><span class="label">${esc(row.label)}</span><select class="select sm" data-path="${row.path}"${row.num ? ' data-num="1"' : ''}>${row.options.map(([id, l]) => `<option value="${esc(id)}" ${(v == null ? '' : String(v)) === String(id) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
     case 'line': {
@@ -171,18 +177,15 @@ function rowHtml(row, spec) {
       return `<div class="style-line"><span><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${row.base}.show" ${b.show ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label></span><input type="color" data-path="${row.base}.color" value="${esc(b.color)}"><span></span></div>`;
     }
     case 'route': {
-      const rt = spec.routes[row.id];
-      return `<div class="route-line"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="routes.${row.id}.show" ${rt.show !== false ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label>
+      const rt = spec.routes[row.id], base = DASHES[rt.dash] || null;
+      const dashBox = (key, ph, title) => `<input class="input sm" type="number" data-path="routes.${row.id}.${key}" data-num="1" min="0.05" max="40" step="0.05" value="${rt[key] == null ? '' : rt[key]}" placeholder="${ph}" title="${title}">`;
+      return `<div class="route-block"><div class="route-line"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="routes.${row.id}.show" ${rt.show !== false ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label>
         <input type="color" data-path="routes.${row.id}.color" value="${esc(rt.color)}"><input class="input sm" type="number" data-path="routes.${row.id}.width" min="0.25" max="20" step="0.25" value="${rt.width}" title="Width (px)">
-        <select class="select sm" data-path="routes.${row.id}.dash" title="Line pattern">${DASH_OPTS.map(([id, l]) => `<option value="${id}" ${rt.dash === id ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
+        <select class="select sm" data-path="routes.${row.id}.dash" title="Line pattern">${DASH_OPTS.map(([id, l]) => `<option value="${id}" ${rt.dash === id ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="route-dash" data-dashrow="${row.id}" ${base ? '' : 'hidden'}><span>Dash length · gap <span class="help">× width</span></span>${dashBox('dashLen', base ? base[0] : '', 'Dash (or dot) length, in line widths')}${dashBox('dashGap', base ? base[1] : '', 'Gap between dashes, in line widths')}</div></div>`;
     }
-    case 'kind': {
-      const k = spec.places.kinds[row.id], b = `places.kinds.${row.id}`;
-      return `<div class="kind-block"><div class="style-line"><span><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" data-path="${b}.show" ${k.show !== false ? 'checked' : ''}><span class="track"></span>${esc(row.label)}</label></span><input type="color" data-path="${b}.color" value="${esc(k.color)}"><input class="input sm" type="number" data-path="${b}.size" min="1" max="20" step="0.5" value="${k.size}" title="Size"></div>
-        <div class="kind-line"><select class="select sm" data-path="${b}.shape" title="Shape">${Object.entries(SHAPES).map(([id, x]) => `<option value="${id}" ${(k.shape || 'circle') === id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
-        <select class="select sm" data-path="${b}.glyph" title="Symbol">${Object.entries(GLYPHS).map(([id, x]) => `<option value="${id}" ${(k.glyph || 'none') === id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
-        <input type="color" data-path="${b}.glyphColor" value="${esc(k.glyphColor || '#ffffff')}" title="Symbol colour"></div></div>`;
-    }
+    case 'kind': return kindBlock(spec, row);
+    case 'kindsAll': return kindBlock(spec, { id: null, label: 'All kinds' });
     case 'palette': {
       const cur = (spec.palette && spec.palette.id) || 'classic';
       return `<div class="palette-grid">${ROUTE_PALETTES.map((p) => `<button type="button" class="palette-btn ${p.id === cur ? 'on' : ''}" data-palette="${p.id}" title="${esc(p.label)} — ${esc(p.for)}"><span class="pal-dots">${TYPES.map((ty) => `<i style="background:${p.colors[ty.id]}"></i>`).join('')}</span><span class="pal-name">${esc(p.label)}</span><span class="pal-for">${esc(p.for)}</span></button>`).join('')}</div>
@@ -194,7 +197,25 @@ function rowHtml(row, spec) {
     default: return '';
   }
 }
-const fmt = (v) => (typeof v === 'number' ? (Math.abs(v) >= 10 ? Math.round(v) : +v.toFixed(2)) : v);
+// What a slider's number box shows: the value as typed (so 0.05 reads 5 on a percentage).
+const shown = (row, v) => (typeof v === 'number' ? +(v * (row.mul || 1)).toFixed(4) : '');
+// Kinds whose ⋯ detail line is open, so redrawing the panel keeps them open.
+const openKinds = new Set(['*']);
+// One pin kind: switch · colour · size on the first line, ⋯ opens shape · symbol · symbol colour · outline.
+// With id null it is the "All kinds" row (data-all, not data-path): changing it sets that field on every kind (TA-6).
+function kindBlock(spec, { id, label }) {
+  const all = id == null, kinds = spec.places.kinds, ids = Object.keys(kinds);
+  const k = all ? kinds[ids[0]] || {} : kinds[id];
+  const at = (field) => (all ? `data-all="${field}"` : `data-path="places.kinds.${id}.${field}"`);
+  const open = openKinds.has(all ? '*' : id);
+  const placeholder = (what) => (all ? `<option value="" selected>${what}…</option>` : '');
+  const sel = (field, map, cur, dflt) => `<select class="select sm" ${at(field)} title="${field === 'shape' ? 'Shape' : 'Symbol'}">${placeholder(field === 'shape' ? 'Shape' : 'Symbol')}${Object.entries(map).map(([key, x]) => `<option value="${key}" ${!all && (cur || dflt) === key ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>`;
+  const outlineOn = all ? ids.every((i) => kinds[i].outline !== false) : k.outline !== false;
+  const title = all ? '<strong>All kinds</strong>' : `<label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" ${at('show')} ${k.show !== false ? 'checked' : ''}><span class="track"></span>${esc(label)}</label>`;
+  return `<div class="kind-block${all ? ' kind-all' : ''}" ${all ? '' : `data-kind="${id}"`}><div class="kind-head"><span>${title}</span><input type="color" ${at('color')} value="${esc(k.color || '#677384')}" title="${all ? 'Colour of every kind' : 'Colour'}"><input class="input sm" type="number" ${at('size')} min="1" max="20" step="0.5" value="${all ? '' : k.size}" ${all ? 'placeholder="size"' : ''} title="${all ? 'Size of every kind' : 'Size'}"><button type="button" class="btn sm ghost" data-more="${all ? '*' : id}" title="Shape, symbol and outline" aria-expanded="${open}">⋯</button></div>
+    <div class="kind-more" ${open ? '' : 'hidden'}><div class="kind-line">${sel('shape', SHAPES, k.shape, 'circle')}${sel('glyph', GLYPHS, k.glyph, 'none')}<input type="color" ${at('glyphColor')} value="${esc(k.glyphColor || '#ffffff')}" title="Symbol colour"></div>
+      <div class="kind-line kind-outline"><label class="switch" style="font-size:var(--fs-sm)"><input type="checkbox" ${at('outline')} ${outlineOn ? 'checked' : ''}><span class="track"></span>Outline</label><span class="help">${all ? 'every kind' : 'colour →'}</span><input type="color" ${at('stroke')} value="${esc(k.stroke || spec.places.stroke || '#ffffff')}" title="Outline colour"></div></div></div>`;
+}
 function swatch(p) {
   const sp = p.spec, land = sp.land || '#f4f1ea', water = sp.water || '#a9cbe0';
   const rc = sp.routes ? Object.values(sp.routes)[0].color : '#c0392b';
@@ -225,14 +246,50 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
     recolour();
   };
 
+  const rowFor = (path) => secs.flatMap((x) => x.rows).find((x) => x.path === path);
+  // A slider's value changed (from the slider or its number box): keep both and the hint in step, then save.
+  const setRange = (row, v) => {
+    const sl = host.querySelector(`input[type=range][data-path="${row.path}"]`);
+    if (sl) {
+      sl.value = row.scale ? row.scale.pos(v) : v;
+      const box = sl.parentElement.querySelector('[data-box]'), out = sl.parentElement.querySelector('output');
+      if (box && document.activeElement !== box) box.value = shown(row, v);
+      if (out) out.textContent = row.show ? row.show(v) : row.unit || '';
+    }
+    if (row.path.startsWith('palette.')) { setLocal(row.path, v); onChange(row.path, v); recolour(); } else onChange(row.path, v);
+  };
+  // A typed value, clamped to the slider's range and snapped to its step (a log slider takes any whole number).
+  const snap = (row, v) => {
+    const x = Math.min(row.max, Math.max(row.min, v));
+    return row.scale ? Math.round(x) : +(Math.round((x - row.min) / row.step) * row.step + row.min).toFixed(6);
+  };
+  const boxValue = (el) => { const row = rowFor(el.dataset.box); const n = el.value === '' ? NaN : +el.value / (row.mul || 1); return { row, n }; };
+
+  // "All kinds" (TA-6): write one field onto every pin kind once; each kind can then be changed on its own.
+  const applyAll = (el) => {
+    const field = el.dataset.all;
+    let v;
+    if (el.type === 'checkbox') v = el.checked;
+    else if (el.value === '') return;
+    else v = el.type === 'number' ? Math.min(20, Math.max(1, +el.value)) : el.value;
+    const kinds = spec.places.kinds;
+    for (const [id, kd] of Object.entries(kinds)) {
+      kd[field] = v;
+      const inp = host.querySelector(`[data-path="places.kinds.${id}.${field}"]`);
+      if (inp) { if (inp.type === 'checkbox') inp.checked = v; else inp.value = v; }
+    }
+    onChange('places.kinds', structuredClone(kinds));
+  };
+
   host.oninput = (e) => {
     const el = e.target, path = el.dataset.path;
-    if (path && path.startsWith('palette.')) {
-      const v = el.type === 'checkbox' ? el.checked : +el.value;
-      if (el.type === 'range') { const out = el.parentElement.querySelector('output'); const row = secs.flatMap((x) => x.rows).find((x) => x.path === path); if (out) out.textContent = fmt(v) + ((row && row.unit) || ''); }
-      setLocal(path, v); onChange(path, v); recolour();
+    if (el.dataset.all) { applyAll(el); return; }
+    if (el.dataset.box) { // typed into a slider's number box: apply once it is a number in range, snap on blur
+      const { row, n } = boxValue(el);
+      if (Number.isFinite(n) && n >= row.min && n <= row.max) setRange(row, snap(row, n));
       return;
     }
+    if (el.type === 'range' && path) { const row = rowFor(path); if (row) { setRange(row, row.scale ? row.scale.val(+el.value) : +el.value); return; } }
     if (el.dataset.auto) {
       const col = host.querySelector(`input[type=color][data-path="${el.dataset.auto}"]`);
       col.disabled = !el.checked;
@@ -240,11 +297,33 @@ export function styleControls(host, spec, { onChange, onReplace, placeKinds = []
       return;
     }
     if (!path) return;
-    const v = el.type === 'checkbox' ? el.checked : el.dataset.num ? (el.value === '' ? null : +el.value) : el.type === 'number' || el.type === 'range' ? +el.value : el.value;
-    if (el.type === 'range') { const out = el.parentElement.querySelector('output'); const row = secs.flatMap((x) => x.rows).find((x) => x.path === path); if (out) out.textContent = row && row.show ? row.show(v) : fmt(v) + ((row && row.unit) || ''); }
+    let v = el.type === 'checkbox' ? el.checked : el.dataset.num ? (el.value === '' ? null : +el.value) : el.type === 'number' || el.type === 'range' ? +el.value : el.value;
+    if (el.dataset.num && el.type === 'number' && v != null) v = Math.min(+el.max, Math.max(+el.min, v)); // dash length / gap: keep within what saves
     onChange(path, v);
+    const dm = path.match(/^routes\.(\w+)\.dash$/); // a new line pattern: show / hide its length + gap, and what "standard" is
+    if (dm) {
+      const dr = host.querySelector(`[data-dashrow="${dm[1]}"]`), base = DASHES[v];
+      if (dr) { dr.hidden = !base; if (base) { const [a, g] = dr.querySelectorAll('input'); a.placeholder = base[0]; g.placeholder = base[1]; } }
+    }
+  };
+  // Leaving a number box (or pressing Enter) puts the snapped value back in it.
+  host.onchange = (e) => {
+    const el = e.target;
+    if (!el.dataset.box) return;
+    const { row, n } = boxValue(el);
+    const cur = Number.isFinite(n) ? snap(row, n) : null;
+    if (cur == null) { el.value = shown(row, get(spec, row.path)); return; }
+    el.value = shown(row, cur);
+    setRange(row, cur);
   };
   host.onclick = async (e) => {
+    const mb = e.target.closest('[data-more]');
+    if (mb) {
+      const id = mb.dataset.more, blk = mb.closest('.kind-block'), more = blk.querySelector('.kind-more');
+      more.hidden = !more.hidden; mb.setAttribute('aria-expanded', String(!more.hidden));
+      if (more.hidden) openKinds.delete(id); else openKinds.add(id);
+      return;
+    }
     const pb = e.target.closest('[data-palette]');
     if (pb) { setPalette(pb.dataset.palette); return; }
     if (e.target.closest('[data-palette-suggest]')) { setPalette(suggestPalette(spec)); return; }

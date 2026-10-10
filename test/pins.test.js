@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SHAPES, GLYPHS, mapPath, pinParts, pathToPdf, glyphIn } from '../web/lib/pins.js';
 import { buildPdf, buildSvg } from '../web/lib/outputs.js';
-import { resolveStyle, validateStyle, PLACE_KINDS } from '../web/lib/style.js';
+import { resolveStyle, validateStyle, PLACE_KINDS, pinStroke, dashArray, DASHES, logScale } from '../web/lib/style.js';
 
 const JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xff, 0xc0, 0, 11, 8, 0, 20, 0, 30, 1, 1, 0x11, 0, 0xff, 0xd9]);
 
@@ -50,4 +50,43 @@ test('style: the trip’s accommodation kinds, pin options and map-detail settin
   assert.equal(s.places.kinds.stay.glyph, 'bed');
   for (const k of ['freedom', 'campground', 'tent', 'carpark', 'stay', 'friends', 'hut']) assert.ok(PLACE_KINDS.some((x) => x.id === k), k);
   assert.match(validateStyle(resolveStyle({ detail: { coastline: '5m' } })), /coastline/);
+});
+
+test('TA-5: each kind has its own outline — on/off and colour — falling back to the preset default', () => {
+  const places = { stroke: '#ffffff', strokeWidth: 1.5 };
+  assert.deepEqual(pinStroke({}, places), { color: '#ffffff', width: 1.5 });                       // old saved kinds follow the default
+  assert.deepEqual(pinStroke({ outline: true, stroke: '#112233' }, places), { color: '#112233', width: 1.5 });
+  assert.deepEqual(pinStroke({ outline: false, stroke: '#112233' }, places), { color: null, width: 0 });
+  assert.deepEqual(pinStroke({}, { stroke: '#ffffff', strokeWidth: 0 }), { color: null, width: 0 });
+  const s = resolveStyle({ places: { kinds: { stay: { outline: false, stroke: '#abcdef' } } } });
+  assert.equal(validateStyle(s), null);
+  assert.equal(s.places.kinds.stay.outline, false);
+  assert.equal(s.places.kinds.stay.stroke, '#abcdef');
+  assert.equal(s.places.kinds.tent.outline, true);                                                 // others keep the default
+  assert.match(validateStyle(resolveStyle({ places: { kinds: { stay: { stroke: 'nope' } } } })), /stroke is not a #rrggbb/);
+});
+
+test('TA-9: a route type can set its own dash length and gap', () => {
+  assert.equal(dashArray({ dash: 'solid' }), null);
+  assert.deepEqual(dashArray({ dash: 'dashed' }), DASHES.dashed);                                    // nothing set = the named pattern
+  assert.deepEqual(dashArray({ dash: 'dashed', dashGap: 5 }), [3, 5]);
+  assert.deepEqual(dashArray({ dash: 'dotted', dashLen: 1, dashGap: 4 }), [1, 4]);
+  assert.deepEqual(dashArray({ dash: 'dashdot', dashLen: 6, dashGap: 3 }), [6, 3, 0.1, 3]);
+  assert.deepEqual(dashArray({ dash: 'long', dashLen: null, dashGap: null }), DASHES.long);
+  const s = resolveStyle({ routes: { drive: { dash: 'dotted', dashLen: 0.5, dashGap: 6 } } });
+  assert.equal(validateStyle(s), null);
+  assert.equal(s.routes.drive.dashGap, 6);
+  assert.equal(s.routes.walk.dashGap, null);
+  assert.match(validateStyle(resolveStyle({ routes: { drive: { dashGap: 0 } } })), /dashGap must be/);
+});
+
+test('TA-8: the Detail slider is fine at the low end and still reaches the top', () => {
+  const sc = logScale(5, 20000);
+  assert.equal(sc.val(0), 0);
+  assert.equal(sc.val(1), 5);
+  assert.equal(sc.val(100), 20000);
+  for (let p = 1; p < 100; p++) assert.ok(sc.val(p + 1) >= sc.val(p), `monotonic at ${p}`);
+  assert.ok(sc.val(20) < 30 && sc.val(40) < 200);                                                    // 5 m steps near the bottom
+  assert.equal(sc.pos(0), 0);
+  for (const m of [5, 10, 25, 120, 1500, 20000]) assert.ok(Math.abs(sc.val(sc.pos(m)) - m) / m < 0.2, `${m} m round-trips near itself`);
 });

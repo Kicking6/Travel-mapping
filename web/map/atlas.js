@@ -8,7 +8,8 @@
 //  - filtering is a layer filter on ids, never a setData — re-tiling 100k
 //    points on each keystroke is what makes maps feel sticky;
 //  - selection / hover / dim are feature-state.
-import { BASEMAPS, PLACE_KINDS, DASHES, rampColor, pinPx } from '../lib/style.js';
+import { BASEMAPS, PLACE_KINDS, dashArray, pinStroke, rampColor, pinPx } from '../lib/style.js';
+import { TYPES } from '../lib/types.js';
 import { loadCountries } from '../lib/countries.js';
 import { SHAPES, pinParts } from '../lib/pins.js';
 import { simplify, curve, walkPoiAmount } from '../lib/geo.js';
@@ -106,7 +107,9 @@ const LABEL_LEVEL = { countries: ['labels-country'], cities: ['labels-country', 
 function setP(map, id, prop, val) { try { map.setPaintProperty(id, prop, val); } catch (_) { /* layer lacks that property */ } }
 function setL(map, id, prop, val) { try { map.setLayoutProperty(id, prop, val); } catch (_) { /* layer lacks that property */ } }
 const vis = (b) => (b ? 'visible' : 'none');
-const ROUTE_LAYERS = ['ta-glow', 'ta-casing', ...Object.keys(DASHES).map((d) => 'ta-line-' + d), 'ta-line-grad', 'ta-arrows'];
+// Dashed routes get one layer per transport type, because a dash pattern can't vary per feature (TA-9).
+const DASH_LAYER = (id) => 'ta-dash-' + id;
+const ROUTE_LAYERS = ['ta-glow', 'ta-casing', 'ta-line-solid', ...TYPES.map((t) => DASH_LAYER(t.id)), 'ta-line-grad', 'ta-arrows'];
 
 // Oceans in `water`; lakes, reservoirs and wide rivers in `lakes` when it is set.
 const waterFill = (spec) => (spec.lakes && spec.lakes !== spec.water ? ['match', ['get', 'class'], 'ocean', spec.water, spec.lakes] : spec.water);
@@ -210,7 +213,7 @@ function routeFeatures(routes, spec) {
     if (span && r.date) color = rampColor(g, (Date.parse(r.date) - span[0]) / (span[1] - span[0]));
     feats.push({
       type: 'Feature', id: r.id,
-      properties: { id: r.id, name: r.name, date: r.date || '', color, width: r.width || ts.width, dash: DASHES[ts.dash] !== undefined ? ts.dash : 'solid' },
+      properties: { id: r.id, name: r.name, date: r.date || '', color, width: r.width || ts.width, dash: dashArray(ts) ? ts.dash : 'solid', rtype: spec.routes[r.type] ? r.type : 'other' },
       geometry: { type: 'LineString', coordinates: line(r) },
     });
   }
@@ -290,7 +293,7 @@ function staysLine(places, spec) {
 function pinImage(kind, places, pr) {
   const px = pinPx(kind, places);
   const sh = SHAPES[kind.shape] || SHAPES.circle;
-  const sw = places.strokeWidth, pad = sw + (places.shadow ? 3 : 1);
+  const st = pinStroke(kind, places), sw = st.width, pad = sw + (places.shadow ? 3 : 1);
   const w = Math.ceil((px + pad * 2) * pr);
   const h = Math.ceil((sh.anchor === 'bottom' ? (px + pad) * 2 : px + pad * 2) * pr);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -301,7 +304,7 @@ function pinImage(kind, places, pr) {
   x.globalAlpha = places.opacity;
   if (places.shadow) { x.save(); x.shadowColor = 'rgba(0,0,0,0.35)'; x.shadowBlur = 3; x.shadowOffsetY = 1; x.fillStyle = kind.color; x.fill(shape); x.restore(); }
   x.fillStyle = kind.color; x.fill(shape);
-  if (sw > 0) { x.lineWidth = sw; x.lineJoin = 'round'; x.strokeStyle = places.stroke; x.stroke(shape); }
+  if (sw > 0) { x.lineWidth = sw; x.lineJoin = 'round'; x.strokeStyle = st.color; x.stroke(shape); }
   if (parts.glyph) { x.fillStyle = kind.glyphColor || '#ffffff'; x.fill(new Path2D(parts.glyph), 'evenodd'); }
   return { image: x.getImageData(0, 0, w, h), pixelRatio: pr, glyphDy: (parts.center[1] - h / pr / 2) };
 }
@@ -365,8 +368,9 @@ function addOurLayers(map, spec) {
   const solid = (d) => ['==', ['get', 'dash'], d];
   map.addLayer({ id: 'ta-glow', type: 'line', source: 'ta-routes', layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: {} }, firstLabel);
   map.addLayer({ id: 'ta-casing', type: 'line', source: 'ta-routes', filter: solid('solid'), layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: {} }, firstLabel);
-  for (const d of Object.keys(DASHES)) {
-    map.addLayer({ id: 'ta-line-' + d, type: 'line', source: 'ta-routes', filter: solid(d), layout: { 'line-join': 'round', 'line-cap': d === 'solid' ? 'round' : 'butt' }, paint: DASHES[d] ? { 'line-dasharray': DASHES[d] } : {} }, firstLabel);
+  map.addLayer({ id: 'ta-line-solid', type: 'line', source: 'ta-routes', filter: solid('solid'), layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: {} }, firstLabel);
+  for (const t of TYPES) {
+    map.addLayer({ id: DASH_LAYER(t.id), type: 'line', source: 'ta-routes', filter: ['all', ['!=', ['get', 'dash'], 'solid'], ['==', ['get', 'rtype'], t.id]], layout: { 'line-join': 'round', 'line-cap': 'butt' }, paint: {} }, firstLabel);
   }
   map.addLayer({ id: 'ta-line-grad', type: 'line', source: 'ta-routes', layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: {} }, firstLabel);
   map.addLayer({ id: 'ta-arrows', type: 'symbol', source: 'ta-routes', layout: { 'symbol-placement': 'line', 'icon-image': 'ta-arrow', 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map', visibility: 'none' }, paint: {} });
@@ -404,14 +408,19 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setL(map, 'ta-casing', 'line-cap', fx.cap);
   map.setFilter('ta-casing', withVis(null));
 
-  for (const d of Object.keys(DASHES)) {
-    const id = 'ta-line-' + d;
-    setL(map, id, 'visibility', vis(overlay && !(gradRoute && d === 'solid')));
+  const lineLayer = (id, gradHides, filter, dasharray) => {
+    setL(map, id, 'visibility', vis(overlay && !(gradRoute && gradHides)));
     setP(map, id, 'line-color', ['case', SEL, '#0f3a58', ['get', 'color']]);
     setP(map, id, 'line-width', width);
     setP(map, id, 'line-opacity', op(spec.routeOpacity));
-    if (d === 'solid') setL(map, id, 'line-cap', fx.cap);
-    map.setFilter(id, withVis(['==', ['get', 'dash'], d]));
+    if (dasharray) setP(map, id, 'line-dasharray', dasharray);
+    map.setFilter(id, withVis(filter));
+  };
+  lineLayer('ta-line-solid', true, ['==', ['get', 'dash'], 'solid']);
+  setL(map, 'ta-line-solid', 'line-cap', fx.cap);
+  for (const t of TYPES) {
+    const rt = spec.routes[t.id] || {};
+    lineLayer(DASH_LAYER(t.id), false, ['all', ['!=', ['get', 'dash'], 'solid'], ['==', ['get', 'rtype'], t.id]], (dashArray(rt) || [1, 0]).map((d) => Math.max(d, 0.05)));
   }
   setL(map, 'ta-line-grad', 'visibility', vis(overlay && gradRoute));
   setP(map, 'ta-line-grad', 'line-gradient', ['interpolate', ['linear'], ['line-progress'], 0, fx.gradient.from, 0.5, fx.gradient.via, 1, fx.gradient.to]);
@@ -460,7 +469,7 @@ function paintOurs(map, spec, visibleFilter, mode) {
   setP(map, 'ta-stays-line', 'line-color', cn.color);
   setP(map, 'ta-stays-line', 'line-width', cn.width);
   setP(map, 'ta-stays-line', 'line-opacity', cn.opacity);
-  setP(map, 'ta-stays-line', 'line-dasharray', DASHES[cn.dash] || [1, 0]);
+  setP(map, 'ta-stays-line', 'line-dasharray', dashArray(cn) || [1, 0]);
 
   const dt = spec.detail;
   if (map.getLayer('ta-coast-soft')) {

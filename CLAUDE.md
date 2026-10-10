@@ -39,6 +39,11 @@ Feed this file at the start of every session. It describes current state; keep i
     memory per preset (• in the picker) and survive leaving the page. The essentials (land & water,
     boundaries, routes, stays & POIs, place names, line detail & curve) are open at the top;
     everything else is under "More options".
+    Sliders carry a typed-value box (the Detail slider is logarithmic: 5 m steps at the bottom). Pin kinds
+    are one line each; the "All kinds" row writes a field onto every kind once, ⋯ opens shape · symbol ·
+    outline per kind (`outline`, `stroke` — null = the preset's pin outline colour; `pinStroke()`).
+    Each route type can set its own `dashLen` / `dashGap` (`dashArray()`); dashed routes draw on one
+    layer per type (`ta-dash-<type>`) because MapLibre can't vary a dash pattern per feature.
   - `web/data/airports.json` — IATA → coords, from the old generator's GlobalAirportDatabase
     (`scripts/build-airports.mjs`, plus EZE which it lacked).
 - `migrations/` — D1 schema, numbered. Always add a new migration; never edit an applied one.

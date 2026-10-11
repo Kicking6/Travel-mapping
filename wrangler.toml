@@ -5,6 +5,12 @@ workers_dev = true
 preview_urls = false
 account_id = "f10b4619768b1110ad7f98eabde211d4"
 
+# Per-request CPU cap (Workers Paid; the default would be 30 s). A runaway request or loop stops here instead of
+# billing. Busiest request in the week to 2026-10-11: 32 ms (p99 27 ms). Raise it here if a real job needs more;
+# cf-governor (~/Documents/GitHub/cf-governor) caps the account's spend either way.
+[limits]
+cpu_ms = 1000
+
 # Every request goes through the Worker first so web/ is only served to people
 # who are signed in (worker/index.js); /lib/* is shared code, also gated.
 [assets]
